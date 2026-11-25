@@ -64,7 +64,7 @@ LATE_START = 0.5     # ... and pixels where B is still
 
 @register
 class VectorSwap(TransitionEffect):
-    info = EffectInfo("vector_swap", "Vector Swap (draft)", "Viktor Tost",
+    info = EffectInfo("vector_swap", "Vector Swap", "Viktor Tost",
                       "A's blocks slide along B's motion vectors, then B's blocks arrive sliding like A's.")
 
     @classmethod
