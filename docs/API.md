@@ -34,7 +34,7 @@ the video files, the encoder or the project file.
 | `moshflow/toolkit/motion.py` | `estimate`, `to_field`, `smooth_field` | Yuhyeon Cha |
 | `moshflow/toolkit/warp.py` | `warp` | Yuhyeon Cha |
 | `moshflow/effects/hard_cut.py`, `crossfade.py` | Working reference effects | Yuhyeon Cha |
-| `moshflow/effects/keyframe_drop.py`, `motion_bloom.py`, `liquid_melt.py` | Optional sample skeletons | Anyone |
+| `moshflow/effects/keyframe_drop.py`, `motion_bloom.py`, `liquid_melt.py` | Finished effects, one per member | Casper Bach, Nicolai Hansen, Viktor Tost |
 | `moshflow/effects/<your_effect>.py` | Your own effect | Its author |
 
 ## Frames
@@ -202,21 +202,19 @@ Speed: on a 1280 × 720 frame, `estimate` with block 16 and search 8 takes about
 on every second pixel (`luma[::2, ::2]`, with half the block and search) and double
 the vectors.
 
-## Sample skeletons (optional)
+## Finished effects
 
-Each member writes the effect they want; it only has to follow this API. The three
-files below are optional starting points: each registers an effect with example
-parameters, so it appears in the Inspector and passes the contract test. `render`
-is a plain cut, and the `TODO` comments give one possible design from the Survey &
-Plan, Section 13. Finish one, change it, or delete the file.
+Keyframe Drop, Motion Bloom and Liquid Melt are finished. Each member's file only has
+to follow this API; the parameters below are what the Inspector shows today.
 
 | Effect | id | Parameters |
 | --- | --- | --- |
-| Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 8 (1–32), `heal` float 0.05 (0–1) |
-| Motion Bloom | `motion_bloom` | `source` A / B, `gain` float 1.0 (0–4), `decay` float 0.02 (0–0.5), `release` cut / fade |
-| Liquid Melt | `liquid_melt` | `block` int 16 (8–64), `strength` float 1.0 (0–3), `smoothness` float 0.5 (0–1), `fade` float 0.3 (0–1) |
+| Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 8 (1–32), `heal` float 0.02 (0–1) |
+| Motion Bloom | `motion_bloom` | `gain` float 1.0 (0–4), `residual` float 1.0 (0–2), `emerge` float 1.0 (0–3) |
+| Liquid Melt | `liquid_melt` | `look` pixel / liquid, `direction` right / left, `pixel` int 8 (1–32), `melt` float 2.0 (0–6), `strength` float 1.5 (0–3), `inertia` float 0.6 (0–0.95), `imprint` float 0.6 (0–1), `settle` float 0.35 (0–1), `block` int 16 (8–64) |
 
-When an effect works, remove `(draft)` from its `info.name`.
+Keyframe Drop works best with the `after` alignment and a clip B with clear motion.
+When a new effect works, remove `(draft)` from its `info.name`.
 
 ## Library rule
 

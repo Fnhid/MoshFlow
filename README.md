@@ -56,9 +56,7 @@ The full contract is in [`docs/API.md`](docs/API.md). Team members using Claude 
 should also read [`CLAUDE.md`](CLAUDE.md).
 
 Each member writes the effect they want; it only has to follow the API. Keyframe Drop,
-Motion Bloom and Liquid Melt are optional starting points: they appear in the
-Inspector, render a plain cut, and list the steps of one possible design as `TODO`
-comments. Use one, change it, or delete it. The shared helpers, block matching in
+Motion Bloom and Liquid Melt are finished and appear in the Inspector. The shared helpers, block matching in
 `toolkit/motion.py` and motion compensation in `toolkit/warp.py`, work and are
 checked by `tests/test_toolkit.py`.
 
