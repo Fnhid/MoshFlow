@@ -13,9 +13,10 @@ For one pixel (x, y) of the picture R kept between output frames, in clip B:
    100 and is really 120, the pixel gets 20 brighter, whatever A's value is.
 3. Healing:  R += heal * (B - R), only in blocks that move, because a P-frame sends
    almost nothing for the others. With heal = 0.02, R = 200 and B = 100 give 198.
+4. Blend:    the last 4 frames go 1/5, 2/5, 3/5 and 4/5 of the way to B, so the still
+   areas, where A's picture stays until then, do not jump when B plays again.
 
-Where B is still, A's picture stays. After the window B's own frames play again, as if
-its next I-frame had arrived. Frames of A inside the window are intact.
+Frames of A inside the window are intact.
 """
 
 import numpy as np
@@ -24,6 +25,7 @@ from moshflow.api import EffectInfo, FloatParam, IntParam, TransitionEffect, reg
 from moshflow.toolkit import color, frames, motion, warp
 
 SKIP_GAIN = 1.0    # a vector must lower the mean luma error of its block by this many levels
+BLEND_FRAMES = 4   # length of the final blend, at most a quarter of B's frames
 
 
 @register
@@ -43,6 +45,7 @@ class KeyframeDrop(TransitionEffect):
         block, search, heal = ctx.params["block"], ctx.params["search"], ctx.params["heal"]
         picture = frames.last_clean_a(ctx).astype(np.float32)
         previous = None    # the B frame before the current one
+        blend = min(BLEND_FRAMES, len(ctx.b_window) // 4)
 
         for i, (clip, index) in enumerate(frames.window_frames(ctx)):
             if progress.cancelled:
@@ -60,6 +63,10 @@ class KeyframeDrop(TransitionEffect):
                     moving = (field != 0).any(axis=2)
                     picture[moving] += heal * (current[moving] - picture[moving])
                 previous = current
+                # Equal steps: 1/5 of the difference, then 1/4 of what remains, and so on.
+                left = ctx.length - i
+                if left <= blend:
+                    picture = picture + (current - picture) / (left + 1)
 
             progress.report(i + 1, ctx.length)
             yield color.to_uint8(picture)
