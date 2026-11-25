@@ -10,12 +10,14 @@ so each pixel is copied from where the motion says and then corrected.
 
 Vector Swap keeps each clip's residuals but trades the motion vectors:
 - Before the cut, A's own P-frames are decoded, but their vectors slide from A's
-  own motion to B's: F = (1 - s) F_A + s F_B, with s rising from 0 to `swap`. A's
+  own motion to B's: F = (1 - s) F_A + s F_B, with s rising from 0 to `swap`
+  over the first 60 % of A's part (a smoothstep), then held. A's
   colour changes keep coming while its pixels move the way B moves, so A breaks
   apart along B's motion. B's motion here is B's first frames (only the vectors;
   nothing of B's picture is shown before the cut).
 - After the cut, B's own P-frames are decoded on the same picture, with A's
-  vectors sliding back to B's: s falls from `swap` to 0. B's colour changes paint
+  vectors sliding back to B's: s stays at `swap` for the first 40 % of B's part,
+  then falls to 0. B's colour changes paint
   B in while its pixels still move the way A moved, then B settles into its own
   motion. A's motion here is A's last frames, the motion A would have continued.
 - Landing: after the cut each pixel is also pulled towards B's real frame along a
@@ -41,6 +43,8 @@ from moshflow.toolkit import color, motion, warp
 BLOCK = 16           # block size and search range of the motion, at full size
 SEARCH = 8
 CONFIDENCE = 0.7     # keep a block's vector only if it cuts the block's error to below 70 %
+SWAP_RISE = 0.6      # share of A's part after which the vectors are fully swapped
+SWAP_HOLD = 0.4      # share of B's part during which B keeps A's vectors before trading back
 CHANGE_FULL = 16.0   # residual (in grey levels) at which a pixel turns into B earliest
 EARLY_START = 0.0    # share of B's part after which pixels where B changes turn into B
 LATE_START = 0.4     # ... and pixels where B is still
@@ -82,7 +86,7 @@ class VectorSwap(TransitionEffect):
                 # Before the cut: A's P-frame, vectors sliding from A's to B's.
                 a_field, error = _next_p_frame(a, ctx.a_window[i], a_field, ctx.size)
                 b_field = _next_field(b, min(first_b + i + 1, len(b) - 1), b_field, ctx.size)
-                s = p["swap"] * _smoothstep((i + 1) / a_frames)
+                s = p["swap"] * _smoothstep((i + 1) / (SWAP_RISE * a_frames))
                 field = (1.0 - s) * a_field + s * b_field
             else:
                 # After the cut: B's P-frame, vectors sliding from A's back to B's.
@@ -91,7 +95,7 @@ class VectorSwap(TransitionEffect):
                 if error is not None:
                     change = np.minimum(np.abs(color.bgr_to_y(error)) / CHANGE_FULL, 1.0)
                 a_field = _next_field(a, a_tail[min(k, len(a_tail) - 1)], a_field, ctx.size)
-                s = p["swap"] * (1.0 - _smoothstep((k + 1) / b_frames))
+                s = p["swap"] * (1.0 - _smoothstep(((k + 1) / b_frames - SWAP_HOLD) / (1.0 - SWAP_HOLD)))
                 field = s * a_field + (1.0 - s) * b_field
 
             # A pixel that has already turned into B is dragged only by the share of
