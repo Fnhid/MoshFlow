@@ -18,6 +18,10 @@ Vector Swap keeps each clip's residuals but trades the motion vectors:
   vectors sliding back to B's: s falls from `swap` to 0. B's colour changes paint
   B in while its pixels still move the way A moved, then B settles into its own
   motion. A's motion here is A's last frames, the motion A would have continued.
+- Landing: after the cut each pixel is also pulled towards B's real frame along a
+  planned curve (earlier where B changes), and what is shown mixes in B's sharp
+  footage, so the transition lands exactly on B. Pixels that are already B are
+  no longer dragged. With no B window, B appears over the last third.
 - Both clips keep their real speed: frame k of the window uses the P-frame from
   frame k - 1 to k. A repeated (duplicate) frame has no P-frame of its own, so
   the previous motion carries on and no residual is added.
@@ -37,6 +41,10 @@ from moshflow.toolkit import color, motion, warp
 BLOCK = 16           # block size and search range of the motion, at full size
 SEARCH = 8
 CONFIDENCE = 0.7     # keep a block's vector only if it cuts the block's error to below 70 %
+CHANGE_FULL = 16.0   # residual (in grey levels) at which a pixel turns into B earliest
+EARLY_START = 0.0    # share of B's part after which pixels where B changes turn into B
+LATE_START = 0.4     # ... and pixels where B is still
+NO_B_PART = 1 / 3    # with no B window, the share of the end in which B appears
 
 
 @register
@@ -63,6 +71,10 @@ class VectorSwap(TransitionEffect):
         picture = _last_clean_a(ctx).astype(np.float32)
         zero_field = np.zeros((height, width, 2), np.float32)
         a_field, b_field = zero_field, zero_field
+        land_from = a_frames if b_frames else round(ctx.length * (1 - NO_B_PART))
+        changed = np.zeros((height, width), np.float32)   # most B has changed at a pixel so far
+        change = np.zeros((height, width), np.float32)    # how much B's current P-frame changes
+        shown = np.zeros((height, width), np.float32)     # B's planned share so far
         for i in range(ctx.length):
             if progress.cancelled:
                 return
@@ -76,17 +88,63 @@ class VectorSwap(TransitionEffect):
                 # After the cut: B's P-frame, vectors sliding from A's back to B's.
                 k = i - a_frames
                 b_field, error = _next_p_frame(b, ctx.b_window[k], b_field, ctx.size)
+                if error is not None:
+                    change = np.minimum(np.abs(color.bgr_to_y(error)) / CHANGE_FULL, 1.0)
                 a_field = _next_field(a, a_tail[min(k, len(a_tail) - 1)], a_field, ctx.size)
                 s = p["swap"] * (1.0 - _smoothstep((k + 1) / b_frames))
                 field = s * a_field + (1.0 - s) * b_field
 
-            picture = warp.warp(picture, p["gain"] * field, "bilinear")
+            # A pixel that has already turned into B is dragged only by the share of
+            # the mosh left in it; dragging B's real picture again would crack it.
+            left = (1.0 - shown)[..., None]
+            picture = warp.warp(picture, p["gain"] * left * field, "bilinear")
             if error is not None:
                 picture = picture + p["residual"] * error
             picture = np.clip(picture, 0.0, 255.0)
 
+            out = picture
+            if i >= land_from:
+                # Landing: each pixel moves a step towards B's real frame, P += h (B - P),
+                # following a planned share of B that starts at the cut where B changes
+                # and at 40 % of B's part where B is still, and reaches 1 on the last
+                # frame. What is shown also mixes in B's real, sharp frame by share^2
+                # (sooner where B's motion search failed), so the end is B's footage.
+                target = b.frame(ctx.b_window[i - a_frames] if i >= a_frames else first_b)
+                target = target.astype(np.float32)
+                changed = np.maximum(changed, change)
+                v = (i + 1 - land_from) / (ctx.length - land_from)
+                share = _b_share(v, changed)
+                if i == ctx.length - 1:
+                    h = np.ones_like(share)
+                else:
+                    h = np.where(share >= 1.0, 1.0,
+                                 1.0 - (1.0 - share) / np.maximum(1.0 - shown, 1e-6))
+                picture = picture + np.clip(h, 0.0, 1.0)[..., None] * (target - picture)
+                shown = share
+                sharp = np.maximum(share * share, share * _block_average(change, ctx.size))
+                out = picture + sharp[..., None] * (target - picture)
+
             progress.report(i + 1, ctx.length)
-            yield color.to_uint8(picture)
+            yield color.to_uint8(out)
+
+
+def _b_share(v: float, changed: np.ndarray) -> np.ndarray:
+    """How much of B a pixel shows at progress v (0..1) through the landing, per pixel.
+
+    A pixel starts at EARLY_START where B changes most (changed = 1) and at
+    LATE_START where B is still, then follows a smoothstep to 1 at the end.
+    """
+    start = LATE_START - (LATE_START - EARLY_START) * changed
+    ramp = np.clip((v - start) / (1.0 - start), 0.0, 1.0)
+    return ramp * ramp * (3.0 - 2.0 * ramp)
+
+
+def _block_average(values: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+    """Average of an H x W map over each 16 x 16 block, interpolated smoothly between
+    block centres (the same bilinear interpolation as motion.smooth_field)."""
+    counts = _block_sums(np.ones_like(values, np.float32), BLOCK)
+    means = _block_sums(values.astype(np.float32), BLOCK) / counts
+    return motion.smooth_field(np.stack([means, means], axis=-1), size, BLOCK, 1.0)[..., 0]
 
 
 def _smoothstep(t: float) -> float:
