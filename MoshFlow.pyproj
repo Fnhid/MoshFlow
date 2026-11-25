@@ -52,6 +52,7 @@
     <Compile Include="moshflow\effects\keyframe_drop.py" />
     <Compile Include="moshflow\effects\liquid_melt.py" />
     <Compile Include="moshflow\effects\motion_bloom.py" />
+    <Compile Include="moshflow\effects\pulse_mosh.py" />
     <Compile Include="moshflow\toolkit\__init__.py" />
     <Compile Include="moshflow\toolkit\color.py" />
     <Compile Include="moshflow\toolkit\frames.py" />

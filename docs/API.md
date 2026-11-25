@@ -204,7 +204,7 @@ the vectors.
 
 ## Finished effects
 
-Keyframe Drop, Motion Bloom and Liquid Melt are finished. Each member's file only has
+Keyframe Drop, Motion Bloom, Liquid Melt and Pulse Mosh are finished. Each member's file only has
 to follow this API; the parameters below are what the Inspector shows today.
 
 | Effect | id | Parameters |
@@ -212,6 +212,7 @@ to follow this API; the parameters below are what the Inspector shows today.
 | Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 8 (1–32), `heal` float 0.02 (0–1) |
 | Motion Bloom | `motion_bloom` | `gain` float 1.0 (0–4), `residual` float 1.0 (0–2), `emerge` float 1.0 (0–3) |
 | Liquid Melt | `liquid_melt` | `look` pixel / liquid, `direction` right / left, `pixel` int 8 (1–32), `melt` float 2.0 (0–6), `strength` float 1.5 (0–3), `inertia` float 0.6 (0–0.95), `imprint` float 0.6 (0–1), `settle` float 0.35 (0–1), `block` int 16 (8–64) |
+| Pulse Mosh | `pulse_mosh` | `period` int 6 (2–30), `gain` float 1.5 (0–4), `refresh` float 1.0 (0.2–2), `block` int 16 (8–48) |
 
 Keyframe Drop works best with the `after` alignment and a clip B with clear motion.
 When a new effect works, remove `(draft)` from its `info.name`.
