@@ -47,6 +47,7 @@
     <Compile Include="moshflow\core\timeline.py" />
     <Compile Include="moshflow\effects\__init__.py" />
     <Compile Include="moshflow\effects\_template.py" />
+    <Compile Include="moshflow\effects\bake_smear.py" />
     <Compile Include="moshflow\effects\crossfade.py" />
     <Compile Include="moshflow\effects\hard_cut.py" />
     <Compile Include="moshflow\effects\keyframe_drop.py" />
@@ -57,6 +58,7 @@
     <Compile Include="moshflow\toolkit\color.py" />
     <Compile Include="moshflow\toolkit\frames.py" />
     <Compile Include="moshflow\toolkit\motion.py" />
+    <Compile Include="moshflow\toolkit\pframe.py" />
     <Compile Include="moshflow\toolkit\resize.py" />
     <Compile Include="moshflow\toolkit\warp.py" />
     <Compile Include="moshflow\ui\__init__.py" />
