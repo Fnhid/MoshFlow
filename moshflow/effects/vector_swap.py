@@ -29,9 +29,11 @@ The transition:
 - After the cut, B's I-frame is dropped, as in a datamosh transition. B's
   P-frames are decoded on the same picture with A's vectors (A's last frames),
   which trade back to B's own after 40 % of B's part. B arrives through intra
-  refresh: each 16 x 16 block switches to B's real frame at its own moment, in a
-  random order from ctx.seed spread over B's part. A refreshed block shows B
-  offset by how far its vector is still swapped away from B's own,
+  refresh: each 16 x 16 block switches to B's real frame at its own moment.
+  B starts at a few seed blocks where it changes most and grows outward from
+  them like a stain (see _refresh_order), instead of appearing at random
+  blocks. A refreshed block shows B offset by how far its vector is still
+  swapped away from B's own,
   B(x + s (v_A - v_B)), so B's tiles jump the way A moved and line up into B as
   the vectors trade back. On the last frame every block is B.
 - Both clips keep their real speed: frame k uses the P-frame from k - 1 to k. A
@@ -53,6 +55,9 @@ CONFIDENCE = 0.7     # keep a block's vector only if it cuts the block's error t
 SWAP_RISE = 0.6      # share of A's part after which A's blocks follow B's vectors fully
 SWAP_HOLD = 0.4      # share of B's part during which B's blocks follow A's vectors
 NO_B_PART = 1 / 3    # with no B window, the share of the end over which blocks refresh
+SEEDS = 5            # places where B starts to grow in, where B changes most
+LOOK = 8             # frames of B compared to find where it changes most
+JITTER = 0.15        # randomness in the refresh order, so the growing edge is ragged
 
 
 @register
@@ -78,7 +83,7 @@ class VectorSwap(TransitionEffect):
         first_b = min(ctx.b_window.start, len(b) - 1)
         refresh_from = a_frames if b_frames else round(ctx.length * (1 - NO_B_PART))
         refresh_frames = ctx.length - refresh_from
-        refresh_at = np.random.default_rng(ctx.seed).random((rows, cols))   # 0..1 of the refresh
+        refresh_at = _refresh_order(b, first_b, rows, cols, np.random.default_rng(ctx.seed))
 
         picture = a.frame(max(ctx.a_window.start - 1, 0)).astype(np.float32)
         zero = np.zeros((rows, cols, 2), np.float32)
@@ -137,6 +142,34 @@ class VectorSwap(TransitionEffect):
 
             progress.report(i + 1, ctx.length)
             yield color.to_uint8(picture)
+
+
+def _refresh_order(b, first: int, rows: int, cols: int, rng) -> np.ndarray:
+    """When each block is refreshed, as a 0..1 share of the refresh time (rows, cols).
+
+    An encoder sends fresh (intra) blocks where its prediction breaks down, which is
+    where the picture changes. So B starts at SEEDS blocks where it changes most
+    over its first LOOK frames (mean |luma difference| per block, plus a little
+    randomness), and grows outward: a block's moment is its distance to the nearest
+    seed plus JITTER noise. The moments are then spread evenly over the refresh
+    (by rank), so B grows at a steady pace whatever the distances are.
+    """
+    last = min(first + LOOK, len(b) - 1)
+    change = np.abs(color.bgr_to_y(b.frame(last)) - color.bgr_to_y(b.frame(first)))
+    change = _block_sums(change, BLOCK) / (BLOCK * BLOCK)
+    change = change / max(float(change.max()), 1e-6)
+    score = (change + 0.3 * rng.random((rows, cols))).ravel()
+    seeds = np.argsort(-score)[:SEEDS]
+    r = np.arange(rows, dtype=np.float32)[:, None]
+    c = np.arange(cols, dtype=np.float32)[None, :]
+    distance = np.full((rows, cols), np.inf, np.float32)
+    for seed in seeds:
+        r0, c0 = divmod(int(seed), cols)
+        distance = np.minimum(distance, ((r - r0) ** 2 + (c - c0) ** 2) ** 0.5)
+    order = distance / max(float(distance.max()), 1e-6) + JITTER * rng.random((rows, cols))
+    ranks = np.empty(rows * cols, np.float32)
+    ranks[np.argsort(order.ravel())] = np.arange(rows * cols, dtype=np.float32)
+    return (ranks / (rows * cols)).reshape(rows, cols)
 
 
 def _smoothstep(t: float) -> float:
