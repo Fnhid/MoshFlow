@@ -22,8 +22,11 @@ The transition, frame by frame (both clips keep their real speed):
   F = (1 - e) F_clip + e F_held: early in the transition the clip keeps playing
   smoothly with a little extra smear, and only near the cut does a pulse freeze
   it into the repeated motion, so the start does not stutter like dropped frames. The
-  held motion keeps its pattern but is scaled to an average of PULSE_PX pixels
-  per frame (times gain and the envelope), so every pulse is visible. The
+  held motion has the camera's own movement (its average vector) removed, and
+  keeps its pattern but is scaled to an average of PULSE_PX pixels
+  per frame (times gain and the envelope), so every pulse is visible. If the
+  clip is still when a pulse starts, the pulse uses the latest real motion seen
+  instead (starting with B's first motion), so a still clip still pulses. The
   clip keeps running underneath; when the pulse ends, decoding continues with
   the clip's current P-frame, so the picture snaps into its motion again with
   the smear baked in.
@@ -32,6 +35,8 @@ The transition, frame by frame (both clips keep their real speed):
 - Heal: between pulses each pixel moves a step towards the clip's real frame,
   P += h (R - P) with h = heal (1 - e): A is clean at the start, the bloom
   dominates around the cut, and after the cut B heals in from pulse to pulse.
+  Right after each pulse the picture snaps back by the full `heal`, even near
+  the cut, so the pulses read as beats.
   Over the last LAND part h rises to 1, and the last frame is B's real frame.
 
 Block matching is noisy in flat or blurry areas, and a wrong vector repeated
@@ -50,7 +55,9 @@ BLOCK = 16           # block size and search range of the motion, at full size
 SEARCH = 8
 CONFIDENCE = 0.7     # keep a block's vector only if it cuts the block's error to below 70 %
 LAND = 0.2           # share of the end over which the picture heals fully into B
-PULSE_PX = 2.5       # average motion (pixels per frame) of a pulse at full strength
+PULSE_PX = 6.0       # average motion (pixels per frame) of a pulse at full strength
+MOVING_PX = 0.3      # average vector length below which a P-frame counts as still
+LOOK_AHEAD = 30      # B frames searched for B's first motion
 
 
 @register
@@ -74,7 +81,10 @@ class PFramePulse(TransitionEffect):
         cut = len(ctx.a_window) / ctx.length            # where the cut is, 0..1
         picture = frames.last_clean_a(ctx).astype(np.float32)
         last_field = np.zeros((height, width, 2), np.float32)
-        held, held_left = last_field, 0
+        held, held_left, just_ended = last_field, 0, False
+        # Motion for pulses when the clip itself is still: the latest real motion
+        # seen, starting with B's first motion.
+        moving = _first_motion(ctx.incoming, min(ctx.b_window.start, len(ctx.incoming) - 1), ctx.size)
         for i, (clip, index) in enumerate(frames.window_frames(ctx)):
             if progress.cancelled:
                 return
@@ -85,7 +95,9 @@ class PFramePulse(TransitionEffect):
             if held_left == 0 and i % p["interval"] == p["interval"] - hold and e > 0.05:
                 # A pulse starts: hold this moment's P-frame for `hold` frames.
                 field = _field_at(clip, index, ctx.size)
-                held = _normalised(field if field is not None else last_field)
+                if field is None or not _is_moving(field):
+                    field = moving
+                held = _normalised(field)
                 held_left = hold
 
             # The clip's own current P-frame. Between pulses it is decoded as it is;
@@ -95,6 +107,8 @@ class PFramePulse(TransitionEffect):
             p_frame = _p_frame_at(clip, index, ctx.size)
             if p_frame is not None:
                 last_field, error = p_frame
+                if _is_moving(last_field):
+                    moving = last_field
             else:
                 error = None
             own = 1.0 - e if held_left > 0 else 1.0
@@ -102,12 +116,20 @@ class PFramePulse(TransitionEffect):
             if held_left > 0:
                 field = field + e * PULSE_PX * p["gain"] * held
                 held_left -= 1
+                ending = held_left == 0
+            else:
+                ending = False
             picture = warp.warp(picture, field, "bilinear")
             if error is not None:
                 picture = picture + own * error
             # A step of healing towards the clip's real frame, weaker during a pulse.
+            # Right after a pulse the picture snaps back by the full `heal`, even
+            # near the cut, so every pulse reads as a beat: smear, snap, smear.
             h = own * p["heal"] * (1.0 - e)
+            if just_ended:
+                h = max(h, p["heal"])
             picture = picture + h * (real - picture)
+            just_ended = ending
 
             # Landing: heal fully into B over the last part.
             if u > 1.0 - LAND:
@@ -121,15 +143,34 @@ class PFramePulse(TransitionEffect):
             yield color.to_uint8(picture)
 
 
-def _normalised(field: np.ndarray) -> np.ndarray:
-    """The field scaled so its average vector length is 1 (unchanged if it is still).
+def _is_moving(field: np.ndarray) -> bool:
+    """True if the field's average vector is at least MOVING_PX pixels long."""
+    return float(((field[..., 0] ** 2 + field[..., 1] ** 2) ** 0.5).mean()) >= MOVING_PX
 
-    A pulse keeps the pattern of the clip's motion (where things move, and which
-    way), but always has the same strength, so even a clip that barely moves
-    blooms visibly.
+
+def _first_motion(clip, start: int, size: tuple[int, int]) -> np.ndarray:
+    """The first real motion in a clip from frame `start` on (zeros if it never moves)."""
+    for index in range(start + 1, min(start + LOOK_AHEAD, len(clip))):
+        field = _field_at(clip, index, size)
+        if field is not None and _is_moving(field):
+            return field
+    width, height = size
+    return np.zeros((height, width, 2), np.float32)
+
+
+def _normalised(field: np.ndarray) -> np.ndarray:
+    """The local part of the field, scaled so its average vector length is 1.
+
+    The average vector is the camera moving everything the same way; repeating it
+    would only shove the whole picture and snap it back. What is left after
+    subtracting it is how things move relative to each other, which makes moving
+    areas smear and swell. It keeps its pattern (where things move, and which
+    way) but always has the same strength, so even a clip that barely moves
+    blooms visibly. A field with no local motion is returned unchanged.
     """
-    length = float(((field[..., 0] ** 2 + field[..., 1] ** 2) ** 0.5).mean())
-    return field / length if length > 1e-3 else field
+    local = field - field.mean(axis=(0, 1))
+    length = float(((local[..., 0] ** 2 + local[..., 1] ** 2) ** 0.5).mean())
+    return local / length if length > 1e-3 else field
 
 
 def _envelope(u: float, cut: float) -> float:
