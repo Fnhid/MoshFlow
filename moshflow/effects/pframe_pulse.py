@@ -48,7 +48,7 @@ LAND = 0.2           # no pulse may run into this last share of the transition
 
 @register
 class PFramePulse(TransitionEffect):
-    info = EffectInfo("pframe_pulse", "P-frame Pulse (draft)", "Viktor Tost",
+    info = EffectInfo("pframe_pulse", "P-frame Pulse", "Viktor Tost",
                       "The cut moshes in pulses of duplicated P-frames that bloom and pull B in.")
 
     @classmethod
