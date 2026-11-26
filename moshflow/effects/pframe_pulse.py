@@ -17,7 +17,11 @@ The transition, frame by frame (both clips keep their real speed):
   P-frames land on A's picture).
 - Pulse: every `interval` frames, the P-frame of that moment is held for `hold`
   frames: its motion is decoded again on every one of them (motion only, as a
-  repeated P-frame adds no new picture), so moving areas smear and swell. The
+  repeated P-frame adds no new picture), so moving areas smear and swell. It is
+  mixed with the clip's own current P-frame by the envelope e,
+  F = (1 - e) F_clip + e F_held: early in the transition the clip keeps playing
+  smoothly with a little extra smear, and only near the cut does a pulse freeze
+  it into the repeated motion, so the start does not stutter like dropped frames. The
   held motion keeps its pattern but is scaled to an average of PULSE_PX pixels
   per frame (times gain and the envelope), so every pulse is visible. The
   clip keeps running underneath; when the pulse ends, decoding continues with
@@ -84,19 +88,26 @@ class PFramePulse(TransitionEffect):
                 held = _normalised(field if field is not None else last_field)
                 held_left = hold
 
-            if held_left > 0:
-                # Pulse: the held P-frame again, motion only.
-                picture = warp.warp(picture, PULSE_PX * p["gain"] * e * held, "bilinear")
-                held_left -= 1
+            # The clip's own current P-frame. Between pulses it is decoded as it is;
+            # during a pulse it is mixed with the held P-frame by the envelope, so a
+            # weak pulse (early) leaves the clip playing smoothly and only a strong
+            # one (near the cut) freezes it into the repeated motion.
+            p_frame = _p_frame_at(clip, index, ctx.size)
+            if p_frame is not None:
+                last_field, error = p_frame
             else:
-                # Between pulses: the clip's own current P-frame, then a step of healing
-                # towards its real frame.
-                p_frame = _p_frame_at(clip, index, ctx.size)
-                if p_frame is not None:
-                    last_field, error = p_frame
-                    picture = warp.warp(picture, last_field, "bilinear") + error
-                h = p["heal"] * (1.0 - e)
-                picture = picture + h * (real - picture)
+                error = None
+            own = 1.0 - e if held_left > 0 else 1.0
+            field = own * last_field
+            if held_left > 0:
+                field = field + e * PULSE_PX * p["gain"] * held
+                held_left -= 1
+            picture = warp.warp(picture, field, "bilinear")
+            if error is not None:
+                picture = picture + own * error
+            # A step of healing towards the clip's real frame, weaker during a pulse.
+            h = own * p["heal"] * (1.0 - e)
+            picture = picture + h * (real - picture)
 
             # Landing: heal fully into B over the last part.
             if u > 1.0 - LAND:
