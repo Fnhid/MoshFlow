@@ -48,6 +48,7 @@
     <Compile Include="moshflow\effects\__init__.py" />
     <Compile Include="moshflow\effects\_template.py" />
     <Compile Include="moshflow\effects\crossfade.py" />
+    <Compile Include="moshflow\effects\dct_crush.py" />
     <Compile Include="moshflow\effects\hard_cut.py" />
     <Compile Include="moshflow\effects\keyframe_drop.py" />
     <Compile Include="moshflow\effects\liquid_melt.py" />
