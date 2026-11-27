@@ -83,7 +83,8 @@ Everything an effect gets to render one transition.
 | `fps` | Frame rate |
 
 The output replaces A's frames in `a_window` followed by B's frames in `b_window`.
-The windows come from the transition's duration and alignment:
+The windows come from the transition's duration and alignment (`after` by default, so
+clip A plays to its end and the mosh runs over the start of clip B):
 
 | Alignment | `a_window` | `b_window` |
 | --- | --- | --- |
@@ -265,7 +266,7 @@ python -m moshflow.cli try --effect keyframe_drop a.mp4 b.mp4 -o test.mp4 --para
 ```
 
 `try` renders one transition between the end of `a.mp4` and the start of `b.mp4`
-(`--duration` seconds, `--align before|center|after`, `--size 640x360` for speed).
+(`--duration` seconds, `--align before|center|after` (default `after`), `--size 640x360` for speed).
 
 ## Changing the API
 

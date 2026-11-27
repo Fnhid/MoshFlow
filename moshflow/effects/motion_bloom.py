@@ -28,9 +28,11 @@ The transition, frame by frame:
   Where a P-frame fails (B moves faster than the search reaches, its residual is
   large) the whole block becomes B's real block, as an encoder sends a fresh
   (intra) block there.
-- Refresh (the last tenth, times `emerge`): the remaining blocks switch to B's
-  real frame within a few frames, like B's next keyframe arriving, where B moves
-  first; the last frame is B.
+- Takeover: every block adds up how much B changed there; once that total
+  (times `emerge`) plus a slowly growing time share reaches the block's
+  threshold, the block becomes B's real block. B wears A's picture away where it
+  moves first and still areas last, with no fixed moment at which A has to be
+  gone; the last frame is B.
 - A block shows A's decoded picture or B's frame, never a mix of both.
 - With no B window (alignment "before"), the last third of A's window is moshed
   with B's opening motion and refreshed into B's first frame.
@@ -54,7 +56,6 @@ LOOK_AHEAD = 30      # B frames searched for its opening motions
 LOOK_STEP = 3        # ... every third frame pair, which is enough to find the strongest
 OPENING_COUNT = 1    # the bloom repeats B's single strongest opening motion
 BLOOM_SHARE = 0.5    # share of the moshed frames that repeat that P-frame
-REFRESH_SHARE = 0.1  # share of the moshed frames (times `emerge`) in which blocks switch to B
 INTRA_LEVEL = 40.0   # mean |residual| (grey levels) above which a block is sent fresh
 NO_B_PART = 1 / 3    # with no B window, the share of A's window that is moshed
 
@@ -80,9 +81,8 @@ class MotionBloom(TransitionEffect):
         start = a_frames if b_frames else a_frames - max(1, round(a_frames * NO_B_PART))
         moshed = ctx.length - start                      # frames after the mosh starts
         bloom_end = round(BLOOM_SHARE * moshed)
-        refresh_from = moshed - max(1, round(min(REFRESH_SHARE * p["emerge"], 1.0) * moshed))
         fine = refresh.block_size(ctx.size)              # B arrives in 8 x 8 blocks at 720p
-        limits = refresh.thresholds(ctx.size, fine, ctx.seed, refresh.incoming_motion(ctx, fine))
+        takeover = refresh.Takeover(ctx, fine, refresh.CHANGE_FULL / max(p["emerge"], 1e-3))
         taken = np.zeros((ctx.size[1], ctx.size[0], 1), bool)
         bloom = None
         picture = None
@@ -113,10 +113,9 @@ class MotionBloom(TransitionEffect):
                 taken |= refresh.to_pixels(fresh, fine, ctx.size)
             picture = np.clip(picture, 0.0, 255.0)
 
-            # Refresh: the remaining blocks switch to B, where B moves first.
-            if m >= refresh_from:
-                share = (m + 1 - refresh_from) / (moshed - refresh_from)
-                taken |= refresh.switched(share, fine, limits, ctx.size)
+            # Takeover: B overwrites A where it changes, still areas last.
+            before = b.frame(index - 1) if i >= a_frames and index > 0 else None
+            taken |= takeover.step(before, target, m / max(moshed - 1, 1))
             picture = np.where(taken, target, picture)
             out = target if i == ctx.length - 1 else picture
             progress.report(i + 1, ctx.length)

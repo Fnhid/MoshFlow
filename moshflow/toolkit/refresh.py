@@ -21,10 +21,10 @@ everywhere, every block has switched.
 
 import numpy as np
 
-from moshflow.toolkit import color
+from moshflow.toolkit import color, motion, warp
 
 LOW, HIGH = 0.15, 0.85   # thresholds lie between these
-JITTER = 0.1             # share of randomness in the order when a priority is given
+JITTER = 0.05            # share of randomness in the order when a priority is given
 BLOCK_AT_720P = 8        # switching block size at 720p; scaled with the frame height
 
 
@@ -104,3 +104,55 @@ def incoming_motion(ctx, block: int, look: int = 8) -> np.ndarray:
     last = min(first + look, len(b) - 1, max(ctx.b_window.stop - 1, first))
     difference = np.abs(color.bgr_to_y(b.frame(last)) - color.bgr_to_y(b.frame(first)))
     return block_mean(difference, block)
+
+
+CHANGE_FULL = 1500.0     # summed mean residual (grey levels) of a block at which B has fully taken it
+NOISE = 6.0              # residual below this is compression noise, not change
+COARSE = 4               # the takeover's motion search runs on every 4th pixel
+
+
+class Takeover:
+    """How far clip B has overwritten the old picture, block by block, as B plays.
+
+    There is no moment at which the old picture has to be gone. Every frame, each
+    block adds up B's residual there: what B's motion does not explain, as a codec
+    measures it (a camera pan is motion, not change, so it does not count); a block
+    becomes B, whole, once that total, plus a small
+    share that grows with time (progress^2: slow at first, then faster), reaches
+    the block's threshold. So B overwrites the old picture first where it moves,
+    and still areas keep the old picture longest, as in a real decoder. At the last
+    frame of the transition every block is B.
+
+        takeover = refresh.Takeover(ctx, block)
+        ...
+        taken = takeover.step(b_before, b_now, progress)      # (H, W, 1) bool
+        picture = np.where(taken, b_now, picture)
+    """
+
+    def __init__(self, ctx, block: int, change_full: float = CHANGE_FULL):
+        self.block, self.size, self.full = block, ctx.size, change_full
+        self.limits = thresholds(ctx.size, block, ctx.seed, incoming_motion(ctx, block))
+        self.change = np.zeros(self.limits.shape, np.float32)
+
+    def step(self, before, now, progress: float) -> np.ndarray:
+        """Adds B's change from `before` to `now` (either may be None) and returns the
+        blocks B has taken so far. `progress` runs from 0 to 1 over the moshed frames."""
+        if before is not None and now is not None:
+            self.change += block_mean(_residual(before, now), self.block)
+        share = self.change / self.full + min(max(progress, 0.0), 1.0) ** 2
+        return to_pixels(share >= self.limits, self.block, self.size)
+
+
+def _residual(before, now) -> np.ndarray:
+    """|now - before moved by its motion| in luma, minus noise, (H, W).
+
+    The motion is found by block matching on every COARSE-th pixel (8 x 8 blocks,
+    search 4 there: 32 x 32 blocks and +-16 pixels at full size), which is enough
+    to tell a camera pan or a moving object from new content, and cheap."""
+    y_before = color.bgr_to_y(np.asarray(before, np.float32))
+    y_now = color.bgr_to_y(np.asarray(now, np.float32))
+    height, width = y_now.shape
+    vectors = motion.estimate(y_before[::COARSE, ::COARSE], y_now[::COARSE, ::COARSE], 8, 4)
+    field = motion.to_field(vectors * COARSE, (width, height), 8 * COARSE)
+    predicted = warp.warp(y_before, field)
+    return np.maximum(np.abs(y_now - predicted) - NOISE, 0.0)

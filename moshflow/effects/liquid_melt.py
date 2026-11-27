@@ -71,7 +71,7 @@ class LiquidMelt(TransitionEffect):
             FloatParam("strength", "Motion strength", 1.5, 0.0, 3.0),
             FloatParam("inertia", "Inertia", 0.6, 0.0, 0.95),
             FloatParam("imprint", "B shows through", 0.6, 0.0, 1.0),
-            FloatParam("settle", "Pour-in", 0.0, 0.0, 1.0),
+            FloatParam("settle", "Pour-in", 1.0, 0.0, 1.0),
             IntParam("block", "Block size", 16, 8, 64),
             IntParam("search", "Search range", 8, 2, 32),
             FloatParam("smoothness", "Smoothness", 1.0, 0.0, 1.0),
@@ -141,7 +141,7 @@ class LiquidMelt(TransitionEffect):
             # Step 6: B pours in where it moved most first and spreads outwards from
             # there, behind a soft liquid edge; the last pixel goes on the last frame.
             if i >= settle_start:
-                s = (i - settle_start + 1) / settle_frames
+                s = ((i - settle_start + 1) / settle_frames) ** 2   # slow at first: A wears away
                 if pour_order is None:
                     pour_order = _pour_order(_block_means(activity, n), jitter, ctx.size, n)
                 out = np.where((pour_order < s)[..., None], target, out)

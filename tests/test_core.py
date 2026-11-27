@@ -148,3 +148,8 @@ def test_broken_effect_file_is_reported_and_does_not_stop_the_others(tmp_path, m
     failures = discover_effects("some_effects")
     assert [f.module for f in failures] == ["some_effects.broken"]
     assert "boom" in failures[0].error
+
+
+def test_new_transitions_play_clip_a_to_its_end():
+    # The mosh runs over the start of clip B, so clip A is never cut short.
+    assert Transition().alignment == "after"

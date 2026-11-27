@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     p_try.add_argument("--effect", required=True, help="effect id (see 'effects')")
     p_try.add_argument("-o", "--output", default="test.mp4")
     p_try.add_argument("--duration", type=float, default=1.0, help="transition length in seconds")
-    p_try.add_argument("--align", choices=ALIGNMENTS, default="center")
+    p_try.add_argument("--align", choices=ALIGNMENTS, default="after")
     p_try.add_argument("--param", action="append", default=[], metavar="ID=VALUE")
     p_try.add_argument("--seed", type=int, default=0)
     p_try.add_argument("--size", help="output size, e.g. 640x360")
