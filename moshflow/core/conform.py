@@ -44,7 +44,26 @@ class ConformedSource:
         return self._cache.get_or_create(src, lambda: self._load(src))
 
     def _load(self, src: int) -> np.ndarray:
-        frame = resize.bilinear(self._reader.read(src), self.size)
+        frame = fit(self._reader.read(src), self.size)
         frame = np.ascontiguousarray(frame)
         frame.flags.writeable = False
         return frame
+
+
+def fit(frame: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+    """Resizes a frame into size = (width, height) without stretching it.
+
+    A clip with another aspect ratio (a 4:3 clip in a 16:9 project, a vertical phone
+    clip) is scaled to fit and centred on black bars, as a video editor does.
+    """
+    width, height = size
+    src_h, src_w = frame.shape[:2]
+    if src_w * height == src_h * width:
+        return resize.bilinear(frame, size)
+    scale = min(width / src_w, height / src_h)
+    fit_w = max(1, min(width, int(round(src_w * scale))))
+    fit_h = max(1, min(height, int(round(src_h * scale))))
+    out = np.zeros((height, width, frame.shape[2]), dtype=frame.dtype)
+    left, top = (width - fit_w) // 2, (height - fit_h) // 2
+    out[top:top + fit_h, left:left + fit_w] = resize.bilinear(frame, (fit_w, fit_h))
+    return out

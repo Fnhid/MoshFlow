@@ -157,3 +157,13 @@ def test_broken_effect_file_is_reported_and_does_not_stop_the_others(tmp_path, m
 def test_new_transitions_play_clip_a_to_its_end():
     # The mosh runs over the start of clip B, so clip A is never cut short.
     assert Transition().alignment == "after"
+
+
+def test_clips_with_another_aspect_ratio_get_black_bars():
+    from moshflow.core.conform import fit
+    square = np.full((30, 30, 3), 200, np.uint8)
+    out = fit(square, (60, 30))                       # 1:1 into 2:1
+    assert out.shape == (30, 60, 3)
+    assert out[:, :15].max() == 0 and out[:, 45:].max() == 0   # bars left and right
+    assert out[:, 15:45].min() == 200                          # the picture is not stretched
+    assert fit(np.zeros((30, 60, 3), np.uint8), (40, 20)).shape == (20, 40, 3)
