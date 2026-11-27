@@ -28,9 +28,10 @@ cell. It turns into clip B when the pour-in front passes its cell.
 import numpy as np
 
 from moshflow.api import ChoiceParam, EffectInfo, FloatParam, IntParam, TransitionEffect, register
-from moshflow.toolkit import color, frames, motion, warp
+from moshflow.toolkit import codec, color, frames, motion, warp
 
 CUT_LEVEL = 40.0    # mean luma difference above which two frames are a scene cut, not motion
+IMPRINT_QUANT = 14.0
 
 
 @register
@@ -63,7 +64,9 @@ class LiquidMelt(TransitionEffect):
         rng = np.random.default_rng(ctx.seed)
         b = ctx.incoming
 
-        picture = frames.last_clean_a(ctx).astype(np.float32)
+        source_a = frames.last_clean_a(ctx).astype(np.float32)
+        coords = codec.identity_coords(ctx.size)
+        picture = source_a.copy()
         velocity = np.zeros((height, width, 2), np.float32)
         activity = np.zeros((height, width), np.float32)
         limit = 2.0 * p["block"]
@@ -91,11 +94,20 @@ class LiquidMelt(TransitionEffect):
                 velocity[..., 0] -= sign * p["melt"] * speed           # colour travels with sign
                 velocity = np.clip(velocity, -limit, limit)
                 activity += speed
-            picture = warp.warp(picture, velocity, sampling=sampling)
+            if pixel_look:
+                coords, _ = codec.advect_coords(coords, velocity, sampling="nearest")
+                picture = codec.sample_coords(source_a, coords, sampling="nearest")
+            else:
+                picture = warp.warp(picture, velocity, sampling=sampling)
 
-            # Step 4: B's brightness shows through A's colours.
+            # Step 4: B's strong brightness contours etch into A's colours via dead-zone
+            # quantization so smooth areas keep A's exact palette instead of turning grey.
             w = p["imprint"] * t * t * (3.0 - 2.0 * t)
-            out = picture + (w * (color.bgr_to_y(target) - color.bgr_to_y(picture)))[..., None]
+            if w > 0.0:
+                luma_diff = codec.quantize_residual(target - picture, quant=IMPRINT_QUANT, chroma_scale=0.0)
+                out = np.clip(picture + w * luma_diff, 0.0, 255.0)
+            else:
+                out = picture
 
             # Step 6: B pours in from the side, behind a ragged front.
             if i >= settle_start:
@@ -105,7 +117,7 @@ class LiquidMelt(TransitionEffect):
                 if pixel_look:
                     alpha = (when < s).astype(np.float32)
                 else:
-                    alpha = np.clip((s - when) / 0.08 + 0.5, 0.0, 1.0)
+                    alpha = np.clip((s - when) / 0.03 + 0.5, 0.0, 1.0)
                 out = out + alpha[..., None] * (target - out)
 
             # Step 5: draw in pixel cells that grow while melting and shrink at the end.
@@ -120,20 +132,14 @@ class LiquidMelt(TransitionEffect):
 
 
 def _flow(previous, current, size, p) -> np.ndarray:
-    """Smooth H x W x 2 flow from previous to current; zero across a scene cut.
-
-    Block matching runs on every second pixel of the luma, with half the block and
-    search, and the vectors are doubled back to full size.
-    """
-    reference = color.bgr_to_y(previous)[::2, ::2]
-    target = color.bgr_to_y(current)[::2, ::2]
+    """Smooth H x W x 2 flow from previous to current; zero across a scene cut."""
+    reference = color.bgr_to_y(previous)
+    target = color.bgr_to_y(current)
     width, height = size
     if np.abs(target - reference).sum() / target.size > CUT_LEVEL:
         return np.zeros((height, width, 2), np.float32)
-    half_block = max(p["block"] // 2, 1)
-    half_search = max(p["search"] // 2, 1)
-    vectors = 2 * motion.estimate(reference, target, half_block, half_search)
-    return motion.smooth_field(vectors, size, 2 * half_block, p["smoothness"])
+    vectors = codec.estimate_hierarchical(reference, target, block=p["block"], search=p["search"])
+    return motion.smooth_field(vectors, size, p["block"], p["smoothness"])
 
 
 def _pixelate(image: np.ndarray, cell: int) -> np.ndarray:

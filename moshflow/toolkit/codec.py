@@ -467,3 +467,8 @@ def block_mean(values: np.ndarray, block: int) -> np.ndarray:
     counts[:height, :width] = 1.0
     sums = padded.reshape(rows, block, cols, block).sum(axis=(1, 3))
     return sums / counts.reshape(rows, block, cols, block).sum(axis=(1, 3))
+
+
+def frames_equal(first: np.ndarray, second: np.ndarray, threshold: float = 0.5) -> bool:
+    """True when two frames are effectively identical (repeated frame in a clip)."""
+    return float(np.abs(first.astype(np.float32) - second).mean()) < threshold

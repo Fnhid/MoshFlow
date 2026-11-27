@@ -30,7 +30,6 @@ WELL_SIGMA = 0.36
 QUANT = 14.0
 CHROMA_SCALE = 0.08
 INTRA_THRESH = 20.0
-SAME = 0.5
 
 
 @register
@@ -101,7 +100,7 @@ class BakeSmear(TransitionEffect):
             index = ctx.b_window[i - a_frames] if i >= a_frames else min(first_b + i, len(b) - 1)
             target = b.frame(index).astype(np.float32)
 
-            if index > 0 and not _same(b.frame(index - 1), b.frame(index)):
+            if index > 0 and not codec.frames_equal(b.frame(index - 1), b.frame(index)):
                 pf = codec.analyze_pframe(
                     b.frame(index - 1),
                     b.frame(index),
@@ -162,7 +161,7 @@ def _focus(clip, start: int, size: tuple[int, int]) -> tuple[float, float]:
     ys = np.arange(height, dtype=np.float32)[:, None]
     total = sx = sy = 0.0
     for first in range(start, min(start + FOCUS_LOOK, len(clip) - 1), 2):
-        if _same(clip.frame(first), clip.frame(first + 1)):
+        if codec.frames_equal(clip.frame(first), clip.frame(first + 1)):
             continue
         ref_y = color.bgr_to_y(clip.frame(first))
         cur_y = color.bgr_to_y(clip.frame(first + 1))
@@ -175,8 +174,3 @@ def _focus(clip, start: int, size: tuple[int, int]) -> tuple[float, float]:
     if total < 1e-3:
         return width / 2.0, height / 2.0
     return sx / total, sy / total
-
-
-def _same(first: np.ndarray, second: np.ndarray) -> bool:
-    """True when two frames are effectively identical (repeated frame)."""
-    return float(np.abs(first.astype(np.float32) - second).mean()) < SAME

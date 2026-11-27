@@ -216,6 +216,7 @@ without alpha cross-fading or repeated bilinear blur:
 | `codec.decode_pframe(picture, pframe, current_b, ...)` | Applies one `PFrame` to `picture` (motion warp + quantized residual + optional INTRA block replacement) |
 | `codec.identity_coords(size)`, `codec.advect_coords(coords, field, mask=None)`, `codec.sample_coords(image, coords)` | Advects an `(H, W, 2)` coordinate map and hole mask so the source frame is sampled once per output frame with zero accumulated blur |
 | `codec.cluster_grow(mask, scores, target_fraction)` | Organically grows an INTRA block mask from existing block borders and high-error scores |
+| `codec.frames_equal(first, second, threshold=0.5)` | True when two frames are effectively identical (repeated frame) |
 
 ## Finished effects
 
@@ -224,7 +225,7 @@ to follow this API; the parameters below are what the Inspector shows today.
 
 | Effect | id | Parameters |
 | --- | --- | --- |
-| Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 8 (1–32), `heal` float 0.02 (0–1) |
+| Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 16 (1–32), `heal` float 0.0 (0–1) |
 | Motion Bloom | `motion_bloom` | `gain` float 1.0 (0–4), `residual` float 1.0 (0–2), `emerge` float 1.0 (0–3) |
 | Liquid Melt | `liquid_melt` | `look` pixel / liquid, `direction` right / left, `pixel` int 8 (1–32), `melt` float 2.0 (0–6), `strength` float 1.5 (0–3), `inertia` float 0.6 (0–0.95), `imprint` float 0.6 (0–1), `settle` float 0.35 (0–1), `block` int 16 (8–64) |
 | Pulse Mosh | `pulse_mosh` | `period` int 6 (2–30), `gain` float 1.4 (0–4), `residual` float 0.9 (0–2), `block` int 16 (8–32), `exit` snap / intra |

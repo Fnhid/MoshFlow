@@ -26,7 +26,6 @@ LOOK_AHEAD = 36
 QUANT = 14.0
 CHROMA_SCALE = 0.15
 INTRA_THRESH = 22.0
-SAME = 0.5
 
 
 @register
@@ -88,7 +87,7 @@ class PulseMosh(TransitionEffect):
             else:
                 b_pos = i - a_frames
                 target = b.frame(index).astype(np.float32)
-                if index > 0 and not _same(b.frame(index - 1), b.frame(index)):
+                if index > 0 and not codec.frames_equal(b.frame(index - 1), b.frame(index)):
                     pf = codec.analyze_pframe(
                         b.frame(index - 1),
                         b.frame(index),
@@ -138,7 +137,7 @@ def _opening_pulses(
     """Local motion fields from B's opening frames, camera pan subtracted."""
     found = []
     for first in range(start, min(start + LOOK_AHEAD, len(clip) - 1), 3):
-        if _same(clip.frame(first), clip.frame(first + 1)):
+        if codec.frames_equal(clip.frame(first), clip.frame(first + 1)):
             continue
         ref_y = color.bgr_to_y(clip.frame(first))
         cur_y = color.bgr_to_y(clip.frame(first + 1))
@@ -153,8 +152,3 @@ def _opening_pulses(
         return [np.zeros((height, width, 2), np.float32)]
     strongest = sorted(found, key=lambda item: -item[0])[:6]
     return [local for _, _, local in sorted(strongest, key=lambda item: item[1])]
-
-
-def _same(first: np.ndarray, second: np.ndarray) -> bool:
-    """True when two frames are effectively identical (repeated frame)."""
-    return float(np.abs(first.astype(np.float32) - second).mean()) < SAME
