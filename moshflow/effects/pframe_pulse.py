@@ -46,6 +46,7 @@ BLOCK = 16           # block size and search range of the motion, at full size
 SEARCH = 8
 CONFIDENCE = 0.7     # keep a block's vector only if it cuts the block's error to below 70 %
 LAND = 0.2           # no pulse may run into this last share of the transition
+KEYFRAME = 0.1       # B's blocks arrive within this last share, like a keyframe
 
 
 @register
@@ -71,7 +72,8 @@ class PFramePulse(TransitionEffect):
         mask = np.ones((height, width), np.float32)
         field = np.zeros((height, width, 2), np.float32)
         held_left = 0
-        b_limits = refresh.thresholds(ctx.size, BLOCK, ctx.seed, refresh.incoming_motion(ctx, BLOCK))
+        fine = refresh.block_size(ctx.size)              # refreshed blocks: 8 x 8 at 720p
+        b_limits = refresh.thresholds(ctx.size, fine, ctx.seed, refresh.incoming_motion(ctx, fine))
         for i, (clip, index) in enumerate(frames.window_frames(ctx)):
             if progress.cancelled:
                 return
@@ -93,8 +95,8 @@ class PFramePulse(TransitionEffect):
                 out = mask[..., None] * out + (1.0 - mask[..., None]) * frame
                 # Before the cut the refreshed blocks are chosen anew every frame (A's own
                 # trickle); after it B's blocks arrive where B moves first.
-                limits = refresh.thresholds(ctx.size, BLOCK, ctx.seed + i) if u <= cut else b_limits
-                taken = refresh.switched(_trickle(u, cut, p["heal"]), BLOCK, limits, ctx.size)
+                limits = refresh.thresholds(ctx.size, fine, ctx.seed + i) if u <= cut else b_limits
+                taken = refresh.switched(_trickle(u, cut, p["heal"]), fine, limits, ctx.size)
                 out = np.where(taken, frame, out)
 
             if i == ctx.length - 1:
@@ -121,14 +123,13 @@ def _decode(out: np.ndarray, mask: np.ndarray, field: np.ndarray):
 def _trickle(u: float, cut: float, heal: float) -> float:
     """The share of blocks refreshed from the live frame at progress u.
 
-    `heal` at the start, falling to 0 at the cut, then rising to 1 at the end:
-    slowly at first (v^4), so the mosh holds for most of B's part, as it does
-    until a real decoder gets B's next keyframe.
+    `heal` at the start, falling to 0 at the cut; after the cut nothing is
+    refreshed until the last KEYFRAME share, where it rises to 1 within a few
+    frames, as when a real decoder gets B's next keyframe.
     """
     if u <= cut:
         return heal * (1.0 - _smoothstep(u / cut)) if cut > 0 else 0.0
-    v = _smoothstep((u - cut) / (1.0 - cut))
-    return v ** 4
+    return _smoothstep((u - (1.0 - KEYFRAME)) / KEYFRAME)
 
 
 def _smoothstep(t: float) -> float:

@@ -32,8 +32,8 @@ The transition:
 - B emerges block by block, never blended: a block turns into B', B offset by
   how far the vectors are still swapped, B(x + s (v_A - v_B)), so B arrives
   moving the way A moved, once B's planned share there reaches the block's own
-  threshold. The share starts rising at the cut where B changes most and
-  halfway through B's part where B is still, and reaches 1 on the last frame,
+  threshold. The share starts rising 40 % into B's part where B changes most
+  and only in the last tenth where B is still (like B's next keyframe), and reaches 1 on the last frame,
   which is B's real frame.
 - Both clips keep their real speed: frame k uses the P-frame from k - 1 to k. A
   repeated (duplicate) frame has no P-frame; the previous vectors carry on.
@@ -55,8 +55,8 @@ SWAP_RISE = 0.6      # share of A's part after which A's blocks follow B's vecto
 SWAP_HOLD = 0.4      # share of B's part during which B's blocks follow A's vectors
 NO_B_PART = 1 / 3    # with no B window, the share of the end over which B emerges
 LOOK = 8             # frames of B compared to find where it changes most
-EARLY_START = 0.0    # share of B's part after which pixels where B changes start turning into B
-LATE_START = 0.5     # ... and pixels where B is still
+EARLY_START = 0.4    # share of B's part after which pixels where B changes start turning into B
+LATE_START = 0.9     # ... and pixels where B is still: within the last few frames
 
 
 @register
@@ -82,7 +82,8 @@ class VectorSwap(TransitionEffect):
         first_b = min(ctx.b_window.start, len(b) - 1)
         emerge_from = a_frames if b_frames else round(ctx.length * (1 - NO_B_PART))
         start = LATE_START - (LATE_START - EARLY_START) * _change_map(b, first_b, ctx.size)
-        limits = refresh.thresholds(ctx.size, BLOCK, ctx.seed, refresh.incoming_motion(ctx, BLOCK))
+        fine = refresh.block_size(ctx.size)              # switching blocks: 8 x 8 at 720p
+        limits = refresh.thresholds(ctx.size, fine, ctx.seed, refresh.incoming_motion(ctx, fine))
 
         picture = a.frame(max(ctx.a_window.start - 1, 0)).astype(np.float32)
         zero = np.zeros((rows, cols, 2), np.float32)
@@ -124,7 +125,7 @@ class VectorSwap(TransitionEffect):
             if i < a_frames:
                 # A plays normally until the swap takes over: a block shows A's real
                 # frame until the swap has reached that block.
-                swapped = refresh.switched(taken, BLOCK, limits, ctx.size)
+                swapped = refresh.switched(taken, fine, limits, ctx.size)
                 picture = np.where(swapped, picture, real)
             out = picture
             if i >= emerge_from:
@@ -135,7 +136,7 @@ class VectorSwap(TransitionEffect):
                 v = (i + 1 - emerge_from) / (ctx.length - emerge_from)
                 ramp = np.clip((v - start) / (1.0 - start), 0.0, 1.0)
                 share = ramp * ramp * (3.0 - 2.0 * ramp)
-                arrived = refresh.switched(share, BLOCK, limits, ctx.size)
+                arrived = refresh.switched(share, fine, limits, ctx.size)
                 picture = np.where(arrived, arriving, picture)
                 out = target if i == ctx.length - 1 else picture
 

@@ -100,7 +100,8 @@ class LiquidMelt(TransitionEffect):
         settle_start = melt_frames - settle_frames
         n = 2 * max(p["block"] // 2, 1) * scale               # block size in pixels
         jitter = rng.random((-(-height // n), -(-width // n))).astype(np.float32)
-        limits = refresh.thresholds(ctx.size, n, ctx.seed)
+        fine = refresh.block_size(ctx.size)              # imprint blocks: 8 x 8 at 720p
+        limits = refresh.thresholds(ctx.size, fine, ctx.seed, refresh.incoming_motion(ctx, fine))
         pour_order = None                                     # when each pixel's B arrives, 0..1
         done, previous = 0, None
 
@@ -134,7 +135,7 @@ class LiquidMelt(TransitionEffect):
             # A block takes B's brightness whole once its share reaches the block's
             # threshold; it is never half A's and half B's.
             w = p["imprint"] * t * t * (3.0 - 2.0 * t) * moved
-            imprinted = refresh.switched(w, n, limits, ctx.size)
+            imprinted = refresh.switched(w, fine, limits, ctx.size)
             out = np.where(imprinted, picture + (color.bgr_to_y(target) - color.bgr_to_y(picture))[..., None], picture)
 
             # Step 6: B pours in where it moved most first and spreads outwards from
