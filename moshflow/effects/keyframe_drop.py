@@ -78,7 +78,7 @@ class KeyframeDrop(TransitionEffect):
                         chroma_scale=CHROMA_SCALE,
                         intra_thresh=INTRA_THRESH,
                     )
-                    picture = codec.decode_pframe(picture, pf, current, sampling="nearest")
+                    picture = codec.decode_pframe(picture, pf, current, sampling="nearest", apply_intra=False)
                 if heal > 0.0:
                     k = i - len(ctx.a_window)
                     taken = takeover.step(previous, current, k / max(b_frames - 1, 1))

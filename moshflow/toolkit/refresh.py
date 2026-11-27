@@ -108,20 +108,23 @@ def incoming_motion(ctx, block: int, look: int = 8) -> np.ndarray:
 
 CHANGE_FULL = 1500.0     # summed mean residual (grey levels) of a block at which B has fully taken it
 NOISE = 6.0              # residual below this is compression noise, not change
+STEP_CAP = 0.05          # one frame adds at most this share of CHANGE_FULL to a block
+SPREAD = 0.94            # a block reaches this share of its neighbour's total each frame
 COARSE = 4               # the takeover's motion search runs on every 4th pixel
 
 
 class Takeover:
     """How far clip B has overwritten the old picture, block by block, as B plays.
 
-    There is no moment at which the old picture has to be gone. Every frame, each
-    block adds up B's residual there: what B's motion does not explain, as a codec
-    measures it (a camera pan is motion, not change, so it does not count); a block
-    becomes B, whole, once that total, plus a small
-    share that grows with time (progress^3: very slow at first, then faster), reaches
-    the block's threshold. So B overwrites the old picture first where it moves,
-    and still areas keep the old picture longest, as in a real decoder. At the last
-    frame of the transition every block is B.
+    Every frame, each block adds up B's residual there: what B's motion does not
+    explain, as a codec measures it (a camera pan is motion, not change, so it does
+    not count). A block becomes B, whole, once that total reaches the block's
+    threshold. Nothing is taken on a timer: a block of the old picture stays until
+    B's own change wears it away, as in a real decoder. One frame can add only a
+    capped amount (so a scene cut in B does not replace everything at once), and each
+    block's total seeps one block outwards per frame (times SPREAD), so B fills the
+    background from where it moves. Only B's next keyframe (progress 1, the
+    transition's last frame) replaces whatever is left.
 
         takeover = refresh.Takeover(ctx, block)
         ...
@@ -138,9 +141,15 @@ class Takeover:
         """Adds B's change from `before` to `now` (either may be None) and returns the
         blocks B has taken so far. `progress` runs from 0 to 1 over the moshed frames."""
         if before is not None and now is not None:
-            self.change += block_mean(_residual(before, now), self.block)
-        share = self.change / self.full + min(max(progress, 0.0), 1.0) ** 3
-        return to_pixels(share >= self.limits, self.block, self.size)
+            # A scene cut changes everything at once; capping one frame's share keeps it
+            # from taking the whole picture in one frame.
+            self.change += np.minimum(block_mean(_residual(before, now), self.block), STEP_CAP * self.full)
+            # B's change seeps one block outwards per frame, so B fills the background
+            # from where it moves instead of the still areas waiting for the keyframe.
+            self.change = np.maximum(self.change, SPREAD * _neighbour_max(self.change))
+        if progress >= 1.0:                      # B's next keyframe: every block is B
+            return np.ones((self.size[1], self.size[0], 1), bool)
+        return to_pixels(self.change / self.full >= self.limits, self.block, self.size)
 
 
 def _residual(before, now) -> np.ndarray:
@@ -156,3 +165,14 @@ def _residual(before, now) -> np.ndarray:
     field = motion.to_field(vectors * COARSE, (width, height), 8 * COARSE)
     predicted = warp.warp(y_before, field)
     return np.maximum(np.abs(y_now - predicted) - NOISE, 0.0)
+
+
+def _neighbour_max(grid: np.ndarray) -> np.ndarray:
+    """The largest value among each cell's 8 neighbours and itself (edges repeated)."""
+    padded = np.pad(grid, 1, mode="edge")
+    rows, cols = grid.shape
+    out = grid.copy()
+    for r in range(3):
+        for c in range(3):
+            out = np.maximum(out, padded[r:r + rows, c:c + cols])
+    return out

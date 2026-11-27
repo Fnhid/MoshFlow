@@ -14,8 +14,10 @@ stay vivid and sharp until B breaks through as real macroblock clusters:
   making A's pixels bloom without showing B yet.
 - B's part of the window (after the cut): B's own P-frames decode onto the picture
   with nearest-neighbour sampling and dead-zone quantized residuals (mostly luma).
-  Blocks where B's prediction fails switch to INTRA immediately, and `emerge` grows
-  clustered INTRA patches organically from active regions (zero opacity fade).
+  Blocks where B's prediction fails switch to INTRA immediately, and B wears A's
+  picture away block by block where it changes (toolkit/refresh.Takeover, faster
+  with a larger `emerge`); nothing disappears on a timer, and the last frame is B's
+  next keyframe.
 - With no B window (alignment "before"), B emerges over the last third towards its
   first frame.
 """
@@ -23,7 +25,7 @@ stay vivid and sharp until B breaks through as real macroblock clusters:
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, TransitionEffect, register
-from moshflow.toolkit import codec, color, frames, motion, warp
+from moshflow.toolkit import codec, color, frames, motion, refresh, warp
 
 BLOCK = 16
 SEARCH = 24
@@ -70,11 +72,11 @@ class MotionBloom(TransitionEffect):
 
         emerge_from = a_frames if len(ctx.b_window) else round(ctx.length * (1 - NO_B_PART))
         rows, cols = -(-height // BLOCK), -(-width // BLOCK)
-        rng = np.random.default_rng(ctx.seed)
-        jitter = rng.random((rows, cols)).astype(np.float32) * 0.25
-
         intra_mask = np.zeros((rows, cols), bool)
-        activity = np.zeros((rows, cols), np.float32)
+        fine = refresh.block_size(ctx.size)
+        takeover = refresh.Takeover(ctx, fine, refresh.CHANGE_FULL / max(emerge, 1e-3))
+        taken = np.zeros((height, width, 1), bool)
+        previous_b = None
         held_field = openings[0] if openings else np.zeros((height, width, 2), np.float32)
 
         for i in range(ctx.length):
@@ -118,30 +120,25 @@ class MotionBloom(TransitionEffect):
                     ramp = (i + 1 - a_frames) / max(ctx.length - a_frames, 1)
                     picture = warp.warp(picture, gain * held_field, sampling="nearest")
                     picture = np.clip(picture + residual_scale * ramp * pf.residual, 0.0, 255.0)
-                    intra_mask = intra_mask | (pf.modes == codec.MODE_INTRA)
-                    activity = np.maximum(activity, pf.mad / 24.0)
+                    # INTRA blocks are not forced in here: B's change reaches them through
+                    # the takeover below, so a sudden new picture in B does not pop in whole.
                 else:
                     picture = warp.warp(picture, gain * held_field, sampling="nearest")
 
             target = b.frame(index).astype(np.float32)
 
-            # Emerge: grow clustered INTRA macroblocks organically from active regions
-            # instead of alpha-blending A and B into grey mud.
+            # B wears A away where B changes; nothing disappears on a timer.
             if i >= emerge_from and emerge > 0.0:
                 span = max(ctx.length - emerge_from, 1)
-                v = (i + 1 - emerge_from) / span
-                start = max(0.0, 0.55 - 0.25 * emerge)
-                if v > start:
-                    u = (v - start) / max(1.0 - start, 1e-6)
-                    share = min(1.0, (u ** (1.8 / max(emerge, 0.25))))
-                    scores = np.minimum(activity, 1.0) + jitter
-                    intra_mask = codec.cluster_grow(intra_mask, scores, share)
-                if i == ctx.length - 1:
-                    intra_mask = np.ones((rows, cols), bool)
+                taken |= takeover.step(previous_b, target, (i + 1 - emerge_from) / span)
+            previous_b = target if i >= a_frames else None
+            if i == ctx.length - 1:                       # B's next keyframe
+                intra_mask = np.ones((rows, cols), bool)
 
             if intra_mask.any():
                 mask_px = codec.expand_blocks(intra_mask, ctx.size, BLOCK)
                 picture = np.where(mask_px[..., None], target, picture)
+            picture = np.where(taken, target, picture)
 
             progress.report(i + 1, ctx.length)
             yield color.to_uint8(picture)

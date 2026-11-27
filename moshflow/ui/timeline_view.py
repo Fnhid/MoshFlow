@@ -91,10 +91,6 @@ class TimelineView(QGraphicsView):
         self._pixels_per_second = max(MIN_PIXELS_PER_SECOND, self._pixels_per_second / 1.25)
         self.rebuild()
 
-    def reset_zoom(self) -> None:
-        self._pixels_per_second = DEFAULT_PIXELS_PER_SECOND
-        self.rebuild()
-
     # --- drawing ---------------------------------------------------------
     def _thumbnail(self, path: str) -> QPixmap | None:
         if path in self._thumbs:

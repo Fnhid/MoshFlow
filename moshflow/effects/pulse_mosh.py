@@ -13,13 +13,14 @@ datamosh) combined with real MPEG-4 / Xvid P-frame decoding from `toolkit.codec`
 3. No fade: blocks only switch to B's real pixels when B's own prediction fails
    (Xvid-style clustered INTRA blocks), or on exit:
    - "snap": keeps A's moshed colours until the transition ends (next I-frame snap).
-   - "intra": organically grows clustered INTRA macroblocks from high-error regions.
+   - "intra": B wears A away block by block where B changes, with no timer; the last
+     frame is B's next keyframe.
 """
 
 import numpy as np
 
 from moshflow.api import ChoiceParam, EffectInfo, FloatParam, IntParam, TransitionEffect, register
-from moshflow.toolkit import codec, color, frames, motion, warp
+from moshflow.toolkit import codec, color, frames, motion, refresh, warp
 
 SEARCH = 24
 LOOK_AHEAD = 36
@@ -64,11 +65,9 @@ class PulseMosh(TransitionEffect):
         a_frames = len(ctx.a_window)
         b_len = len(ctx.b_window)
         pulses = _opening_pulses(b, first_b, ctx.size, block) if a_frames > 0 else []
-        rng = np.random.default_rng(ctx.seed)
         rows, cols = -(-height // block), -(-width // block)
-        jitter = rng.random((rows, cols)).astype(np.float32) * 0.25
         intra_mask = np.zeros((rows, cols), bool)
-        activity = np.zeros((rows, cols), np.float32)
+        takeover = refresh.Takeover(ctx, refresh.block_size(ctx.size))
 
         held_vectors = np.zeros((rows, cols, 2), np.int32)
         held_residual = np.zeros((height, width, 3), np.float32)
@@ -107,19 +106,15 @@ class PulseMosh(TransitionEffect):
                     picture = warp.warp(picture, field, sampling="nearest")
                     res = 0.5 * held_residual + 0.5 * pf.residual
                     picture = np.clip(picture + residual_scale * res, 0.0, 255.0)
-                    intra_mask = intra_mask | (pf.modes == codec.MODE_INTRA)
-                    activity = np.maximum(activity, pf.mad / 25.0)
                 else:
                     pulse_field = motion.to_field(held_vectors, ctx.size, block)
                     picture = warp.warp(picture, gain * decay * pulse_field, sampling="nearest")
 
-                # In "intra" exit mode, grow clustered INTRA patches from high-error blocks.
+                # "intra" exit: B wears A away where B changes, nothing on a timer, and
+                # the last frame is B's next keyframe.
                 if exit_style == "intra" and b_len > 1:
-                    u = (b_pos + 1) / b_len
-                    if u > 0.45:
-                        share = ((u - 0.45) / 0.55) ** 1.8
-                        scores = np.minimum(activity, 1.0) + jitter
-                        intra_mask = codec.cluster_grow(intra_mask, scores, share)
+                    taken = takeover.step(b.frame(index - 1) if index > 0 else None, target, (b_pos + 1) / b_len)
+                    picture = np.where(taken, target, picture)
                     if b_pos == b_len - 1:
                         intra_mask = np.ones((rows, cols), bool)
 

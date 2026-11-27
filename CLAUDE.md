@@ -68,10 +68,13 @@ declare every tunable value in `param_specs()`. No file I/O, UI calls or global 
 Never blend clip A and clip B with a weight (`P + h * (B - P)` looks like a crossfade, not a
 datamosh): a block shows one picture or the other. Use `toolkit/refresh.py` to switch blocks to B.
 
-Keyframe Drop, Motion Bloom and Liquid Melt are finished effects. A member
+Ten effects are finished: Hard Cut, Crossfade, Keyframe Drop, Motion Bloom, Liquid
+Melt, Vector Swap, P-frame Pulse, DCT Crush, Pulse Mosh and Bake Smear. A member
 may still change one or write another. Once an effect id has been used in a saved project, keep it stable.
 The shared helpers work: `toolkit/motion.py` (`estimate`, `to_field`,
-`smooth_field`) and `toolkit/warp.py` (`warp`). Do not change their signatures or
+`smooth_field`), `toolkit/warp.py` (`warp`), `toolkit/codec.py` (P-frames) and
+`toolkit/refresh.py` (`Takeover`: B wears A away by its own motion, nothing on a
+timer). Do not change their signatures or
 the vector convention, because other effects may depend on them. When an effect
 works, remove `(draft)` from its name.
 
