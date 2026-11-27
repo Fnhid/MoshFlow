@@ -87,9 +87,13 @@ def test_clip_fully_used_by_its_transitions_has_no_clip_node():
     assert [type(n) for n in graph.nodes] == [ClipNode, TransitionNode, TransitionNode, ClipNode]
 
 
-def test_clip_too_short_is_a_clear_error():
-    with pytest.raises(TimelineError, match="clip 2"):
-        graph_for(1.0, "center", lengths=(20, 4, 20))
+def test_transitions_longer_than_a_clip_share_it():
+    graph = graph_for(1.0, "center", lengths=(20, 4, 20))     # the middle clip needs 10, has 4
+    first, into, out_of, last = graph.nodes
+    assert into.b_window == range(0, 2) and out_of.a_window == range(2, 4)
+    assert graph.total_frames == 20 + 4 + 20 - 5 - 5 + 5 + 5   # nothing added, nothing lost
+    graph = graph_for(3.0, "after", lengths=(20, 12))          # needs 30 frames of B, has 12
+    assert graph.nodes[-1].b_window == range(0, 12)
 
 
 def test_project_needs_one_transition_per_cut():
@@ -148,3 +152,8 @@ def test_broken_effect_file_is_reported_and_does_not_stop_the_others(tmp_path, m
     failures = discover_effects("some_effects")
     assert [f.module for f in failures] == ["some_effects.broken"]
     assert "boom" in failures[0].error
+
+
+def test_new_transitions_play_clip_a_to_its_end():
+    # The mosh runs over the start of clip B, so clip A is never cut short.
+    assert Transition().alignment == "after"

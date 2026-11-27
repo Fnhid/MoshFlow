@@ -31,9 +31,9 @@ The transition:
   which trade back to B's own after 40 % of B's part.
 - B emerges block by block, never blended: a block turns into B', B offset by
   how far the vectors are still swapped, B(x + s (v_A - v_B)), so B arrives
-  moving the way A moved, once B's planned share there reaches the block's own
-  threshold. The share starts rising 40 % into B's part where B changes most
-  and only in the last tenth where B is still (like B's next keyframe), and reaches 1 on the last frame,
+  moving the way A moved, once the total of how much B changed there, plus a
+  slowly growing time share, reaches the block's own threshold: where B moves
+  first, still areas last, with no fixed moment at which A has to be gone, and reaches 1 on the last frame,
   which is B's real frame.
 - Both clips keep their real speed: frame k uses the P-frame from k - 1 to k. A
   repeated (duplicate) frame has no P-frame; the previous vectors carry on.
@@ -54,9 +54,6 @@ CONFIDENCE = 0.7     # keep a block's vector only if it cuts the block's error t
 SWAP_RISE = 0.6      # share of A's part after which A's blocks follow B's vectors fully
 SWAP_HOLD = 0.4      # share of B's part during which B's blocks follow A's vectors
 NO_B_PART = 1 / 3    # with no B window, the share of the end over which B emerges
-LOOK = 8             # frames of B compared to find where it changes most
-EARLY_START = 0.4    # share of B's part after which pixels where B changes start turning into B
-LATE_START = 0.9     # ... and pixels where B is still: within the last few frames
 
 
 @register
@@ -81,9 +78,9 @@ class VectorSwap(TransitionEffect):
         a_tail = list(ctx.a_window) or [len(a) - 1]    # A's vectors to borrow after the cut
         first_b = min(ctx.b_window.start, len(b) - 1)
         emerge_from = a_frames if b_frames else round(ctx.length * (1 - NO_B_PART))
-        start = LATE_START - (LATE_START - EARLY_START) * _change_map(b, first_b, ctx.size)
         fine = refresh.block_size(ctx.size)              # switching blocks: 8 x 8 at 720p
         limits = refresh.thresholds(ctx.size, fine, ctx.seed, refresh.incoming_motion(ctx, fine))
+        takeover = refresh.Takeover(ctx, fine)
 
         picture = a.frame(max(ctx.a_window.start - 1, 0)).astype(np.float32)
         zero = np.zeros((rows, cols, 2), np.float32)
@@ -129,32 +126,18 @@ class VectorSwap(TransitionEffect):
                 picture = np.where(swapped, picture, real)
             out = picture
             if i >= emerge_from:
-                # B emerges pixel by pixel along a planned share (see the docstring).
+                # B arrives block by block where it changes (see the docstring).
                 target = real if i >= a_frames else b.frame(first_b).astype(np.float32)
                 offset = np.round(p["gain"] * s * (vec_a - vec_b)) if i >= a_frames else 0.0 * vec_a
                 arriving = warp.warp(target, motion.to_field(offset, ctx.size, BLOCK), "nearest")
                 v = (i + 1 - emerge_from) / (ctx.length - emerge_from)
-                ramp = np.clip((v - start) / (1.0 - start), 0.0, 1.0)
-                share = ramp * ramp * (3.0 - 2.0 * ramp)
-                arrived = refresh.switched(share, fine, limits, ctx.size)
+                before = b.frame(ctx.b_window[i - a_frames] - 1) if i >= a_frames and ctx.b_window[i - a_frames] > 0 else None
+                arrived = takeover.step(before, real if i >= a_frames else None, v)
                 picture = np.where(arrived, arriving, picture)
                 out = target if i == ctx.length - 1 else picture
 
             progress.report(i + 1, ctx.length)
             yield color.to_uint8(out)
-
-
-def _change_map(b, first: int, size: tuple[int, int]) -> np.ndarray:
-    """How much B changes over its first LOOK frames, 0..1 per pixel (H, W).
-
-    The mean |luma difference| per block, normalised, interpolated smoothly between
-    block centres so it has no block edges.
-    """
-    last = min(first + LOOK, len(b) - 1)
-    change = np.abs(color.bgr_to_y(b.frame(last)) - color.bgr_to_y(b.frame(first)))
-    change = _block_sums(change, BLOCK) / (BLOCK * BLOCK)
-    change = change / max(float(change.max()), 1e-6)
-    return motion.smooth_field(np.stack([change, change], axis=-1), size, BLOCK, 1.0)[..., 0]
 
 
 def _smoothstep(t: float) -> float:

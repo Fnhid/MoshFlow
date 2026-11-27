@@ -25,8 +25,9 @@ starts as clip A's last frame before the mosh. For every frame of clip B:
 5. Refresh: over the last `heal` share the remaining blocks switch to B's block,
    each all at once (never half blended), like an encoder's intra refresh. The
    activity seeps outwards over the grid and the blocks are ranked by it, so B
-   spreads out from where it moved at an even pace, the same number of blocks
-   every frame. The last frame is exactly B.
+   spreads out from where it moved, few blocks at first and more later (the
+   share grows as its square), so A wears away instead of vanishing at once.
+   The last frame is exactly B.
 
 `timing` "at the cut" lets A's part of the window play clean and starts the mosh at
 B's first frame, with B at its real speed. "stretch" (and any window with no B part)
@@ -76,11 +77,11 @@ class DctCrush(TransitionEffect):
         return [
             ChoiceParam("timing", "B timing", "at the cut", ("at the cut", "stretch")),
             IntParam("block", "Block size", 8, 4, 32),
-            FloatParam("sensitivity", "Texture refresh", 0.25, 0.0, 3.0),
-            FloatParam("colour", "Colour refresh", 0.12, 0.0, 3.0),
+            FloatParam("sensitivity", "Texture refresh", 0.06, 0.0, 3.0),
+            FloatParam("colour", "Colour refresh", 0.03, 0.0, 3.0),
             FloatParam("crush", "Crush", 6.0, 0.0, 30.0),
             FloatParam("chroma", "Colour crush", 2.0, 1.0, 8.0),
-            FloatParam("heal", "Refresh", 0.1, 0.05, 0.6),
+            FloatParam("heal", "Refresh", 1.0, 0.05, 1.0),
             IntParam("search", "Search range", 8, 2, 32),
         ]
 
@@ -144,6 +145,7 @@ class DctCrush(TransitionEffect):
             # switches to B's block at once (never half blended), spreading outwards
             # from where B moved, the same number of blocks every frame.
             s = (t - (1.0 - p["heal"])) / p["heal"]
+            s = s * s if s > 0.0 else s                       # slow at first, so A wears away gradually
             if s >= 1.0:                                      # every block is B: B's own frame
                 progress.report(i + 1, ctx.length)
                 yield frame_b

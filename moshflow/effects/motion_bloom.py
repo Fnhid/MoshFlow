@@ -1,68 +1,49 @@
 """Motion Bloom: clip B's P-frames are played on clip A's last picture.
 
-Emulates the classic datamosh transition made with real video files: clip B's
-I-frame is dropped, so B's P-frames are decoded on top of A's last picture, and
-one P-frame is duplicated many times (moshy's pdupe), so its motion is applied
-again and again and the picture swells ("blooms"). Both clips keep their real
-speed: nothing is slowed down or stretched.
+Emulates the classic datamosh transition: clip B's I-frame is dropped, so B's
+P-frames are decoded on top of A's last picture, and opening P-frames are repeated
+(as moshy's pdupe/ppulse do on real video files) so the motion blooms. Both clips
+keep their real speed: nothing is slowed down or stretched.
 
-A P-frame here is what a codec stores: a motion field F (one vector per pixel,
-measured by block matching: F(x) says where the content at x came from) and a
-residual E, the colour correction for what the motion could not predict:
-E(x) = B_next(x) - B_prev(x + F(x)). Decoding it onto a picture P gives
+Uses `toolkit.codec` for hierarchical block matching, dead-zone quantized residuals,
+and clustered INTRA macroblocks instead of alpha cross-fades, so clip A's colours
+stay vivid and sharp until B breaks through as real macroblock clusters:
 
-    P_new(x) = P(x + F(x)) + E(x)
-
-so each pixel is copied from where the motion says and then gets the same
-colour difference that B had at that spot.
-
-The transition, frame by frame:
-- Before the cut, A plays clean. Nothing of B is used yet.
-- Bloom (the first half after the cut): B's I-frame is gone, so the decoder
-  keeps A's last picture. B's strongest opening P-frame (people's own movement in
-  B's first second, without the camera's, see _opening_motions) is decoded on it
-  again and again, `gain` times its motion each frame: A's picture swells and
-  smears in one steady direction.
-- Decode (the rest): B's own P-frames, one per frame at B's real speed, motion
-  plus `residual` times the residual, so B's moving parts form inside A's picture.
-  Where a P-frame fails (B moves faster than the search reaches, its residual is
-  large) the whole block becomes B's real block, as an encoder sends a fresh
-  (intra) block there.
-- Refresh (the last tenth, times `emerge`): the remaining blocks switch to B's
-  real frame within a few frames, like B's next keyframe arriving, where B moves
-  first; the last frame is B.
-- A block shows A's decoded picture or B's frame, never a mix of both.
-- With no B window (alignment "before"), the last third of A's window is moshed
-  with B's opening motion and refreshed into B's first frame.
-
-Block matching is noisy in flat or blurry areas, and a wrong vector repeated
-many times becomes a random streak, so vectors that do not explain the motion
-clearly better than (0, 0) are dropped, and block vectors are interpolated
-between block centres so no hard block edges appear. Pixels are read with
-bilinear sampling, so fractional vectors do not leave a zig-zag.
+- A's part of the window (before the cut): A's own P-frames keep A moving while B's
+  strongest opening local motions (camera pan removed) repeat in 4-frame bursts,
+  making A's pixels bloom without showing B yet.
+- B's part of the window (after the cut): B's own P-frames decode onto the picture
+  with nearest-neighbour sampling and dead-zone quantized residuals (mostly luma).
+  Blocks where B's prediction fails switch to INTRA immediately, and `emerge` grows
+  clustered INTRA patches organically from active regions (zero opacity fade).
+- With no B window (alignment "before"), B emerges over the last third towards its
+  first frame.
 """
 
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, TransitionEffect, register
-from moshflow.toolkit import color, motion, refresh, warp
+from moshflow.toolkit import codec, color, frames, motion, warp
 
-BLOCK = 16           # block size and search range of the motion, at full size
-SEARCH = 8
-CONFIDENCE = 0.7     # keep a block's vector only if it cuts the block's error to below 70 %
-LOOK_AHEAD = 30      # B frames searched for its opening motions
-LOOK_STEP = 3        # ... every third frame pair, which is enough to find the strongest
-OPENING_COUNT = 1    # the bloom repeats B's single strongest opening motion
-BLOOM_SHARE = 0.5    # share of the moshed frames that repeat that P-frame
-REFRESH_SHARE = 0.1  # share of the moshed frames (times `emerge`) in which blocks switch to B
-INTRA_LEVEL = 40.0   # mean |residual| (grey levels) above which a block is sent fresh
-NO_B_PART = 1 / 3    # with no B window, the share of A's window that is moshed
+BLOCK = 16
+SEARCH = 24
+LOOK_AHEAD = 30
+OPENING_COUNT = 6
+OPENING_HOLD = 4
+QUANT = 14.0
+CHROMA_SCALE = 0.15
+INTRA_THRESH = 22.0
+NO_B_PART = 1 / 3
 
 
 @register
 class MotionBloom(TransitionEffect):
-    info = EffectInfo("motion_bloom", "Motion Bloom", "Viktor Tost",
-                      "Clip B's P-frames play on clip A's last picture, one repeated, until B's blocks arrive.")
+    info = EffectInfo(
+        "motion_bloom",
+        "Motion Bloom",
+        "Viktor Tost",
+        "Clip B's P-frames play on clip A's last picture, one repeated, until B emerges.",
+    )
 
     @classmethod
     def param_specs(cls):
@@ -73,128 +54,115 @@ class MotionBloom(TransitionEffect):
         ]
 
     def render(self, ctx, progress):
+        if progress.cancelled:
+            return
         p = ctx.params
+        gain = p["gain"]
+        residual_scale = p["residual"]
+        emerge = p["emerge"]
+
         a, b = ctx.outgoing, ctx.incoming
-        a_frames, b_frames = len(ctx.a_window), len(ctx.b_window)
+        width, height = ctx.size
+        picture = frames.last_clean_a(ctx).astype(np.float32)
         first_b = min(ctx.b_window.start, len(b) - 1)
-        start = a_frames if b_frames else a_frames - max(1, round(a_frames * NO_B_PART))
-        moshed = ctx.length - start                      # frames after the mosh starts
-        bloom_end = round(BLOOM_SHARE * moshed)
-        refresh_from = moshed - max(1, round(min(REFRESH_SHARE * p["emerge"], 1.0) * moshed))
-        fine = refresh.block_size(ctx.size)              # B arrives in 8 x 8 blocks at 720p
-        limits = refresh.thresholds(ctx.size, fine, ctx.seed, refresh.incoming_motion(ctx, fine))
-        taken = np.zeros((ctx.size[1], ctx.size[0], 1), bool)
-        bloom = None
-        picture = None
+        a_frames = len(ctx.a_window)
+        openings = _opening_motions(b, first_b, ctx.size) if a_frames > 0 else []
+
+        emerge_from = a_frames if len(ctx.b_window) else round(ctx.length * (1 - NO_B_PART))
+        rows, cols = -(-height // BLOCK), -(-width // BLOCK)
+        rng = np.random.default_rng(ctx.seed)
+        jitter = rng.random((rows, cols)).astype(np.float32) * 0.25
+
+        intra_mask = np.zeros((rows, cols), bool)
+        activity = np.zeros((rows, cols), np.float32)
+        held_field = openings[0] if openings else np.zeros((height, width, 2), np.float32)
 
         for i in range(ctx.length):
             if progress.cancelled:
                 return
-            if i < start:                                 # A plays clean up to the mosh
-                progress.report(i + 1, ctx.length)
-                yield a.frame(ctx.a_window[i]).copy()
-                continue
-            if picture is None:                           # the decoder keeps A's last picture
-                last_a = ctx.a_window[start - 1] if start > 0 else max(ctx.a_window.start - 1, 0)
-                picture = a.frame(last_a).astype(np.float32)
-                bloom = p["gain"] * _opening_motions(b, first_b, ctx.size)[0]
-            m = i - start
-            index = ctx.b_window[i - a_frames] if i >= a_frames else first_b
+
+            if i < a_frames:
+                # Before the cut: repeat B's strongest opening local motions on A
+                # while A's own P-frame motion keeps A alive up to the cut.
+                field = openings[(i // OPENING_HOLD) % len(openings)]
+                index = first_b
+                picture = warp.warp(picture, gain * field, sampling="nearest")
+
+                a_index = ctx.a_window[i]
+                if a_index > 0 and not codec.frames_equal(a.frame(a_index - 1), a.frame(a_index)):
+                    pf_a = codec.analyze_pframe(
+                        a.frame(a_index - 1),
+                        a.frame(a_index),
+                        block=BLOCK,
+                        search=SEARCH,
+                        quant=QUANT,
+                        chroma_scale=0.35,
+                        intra_thresh=255.0,
+                    )
+                    picture = codec.decode_pframe(
+                        picture, pf_a, a.frame(a_index), sampling="nearest", apply_intra=False
+                    )
+            else:
+                index = ctx.b_window[i - a_frames]
+                if index > 0 and not codec.frames_equal(b.frame(index - 1), b.frame(index)):
+                    pf = codec.analyze_pframe(
+                        b.frame(index - 1),
+                        b.frame(index),
+                        block=BLOCK,
+                        search=SEARCH,
+                        quant=QUANT,
+                        chroma_scale=CHROMA_SCALE,
+                        intra_thresh=INTRA_THRESH,
+                    )
+                    held_field = motion.smooth_field(pf.vectors, ctx.size, BLOCK, 0.35)
+                    ramp = (i + 1 - a_frames) / max(ctx.length - a_frames, 1)
+                    picture = warp.warp(picture, gain * held_field, sampling="nearest")
+                    picture = np.clip(picture + residual_scale * ramp * pf.residual, 0.0, 255.0)
+                    intra_mask = intra_mask | (pf.modes == codec.MODE_INTRA)
+                    activity = np.maximum(activity, pf.mad / 24.0)
+                else:
+                    picture = warp.warp(picture, gain * held_field, sampling="nearest")
+
             target = b.frame(index).astype(np.float32)
 
-            if m < bloom_end:
-                # Duplicated P-frame: the same motion again, nothing new comes in.
-                picture = warp.warp(picture, bloom, "bilinear")
-            elif i >= a_frames and index > 0 and not _same(b.frame(index - 1), b.frame(index)):
-                # B's own P-frame at B's real speed: motion, then residual.
-                field, error = _p_frame(b, index - 1, index, ctx.size)
-                picture = warp.warp(picture, p["gain"] * field, "bilinear") + p["residual"] * error
-                fresh = refresh.block_mean(np.abs(color.bgr_to_y(error)), fine) > INTRA_LEVEL
-                taken |= refresh.to_pixels(fresh, fine, ctx.size)
-            picture = np.clip(picture, 0.0, 255.0)
+            # Emerge: grow clustered INTRA macroblocks organically from active regions
+            # instead of alpha-blending A and B into grey mud.
+            if i >= emerge_from and emerge > 0.0:
+                span = max(ctx.length - emerge_from, 1)
+                v = (i + 1 - emerge_from) / span
+                start = max(0.0, 0.55 - 0.25 * emerge)
+                if v > start:
+                    u = (v - start) / max(1.0 - start, 1e-6)
+                    share = min(1.0, (u ** (1.8 / max(emerge, 0.25))))
+                    scores = np.minimum(activity, 1.0) + jitter
+                    intra_mask = codec.cluster_grow(intra_mask, scores, share)
+                if i == ctx.length - 1:
+                    intra_mask = np.ones((rows, cols), bool)
 
-            # Refresh: the remaining blocks switch to B, where B moves first.
-            if m >= refresh_from:
-                share = (m + 1 - refresh_from) / (moshed - refresh_from)
-                taken |= refresh.switched(share, fine, limits, ctx.size)
-            picture = np.where(taken, target, picture)
-            out = target if i == ctx.length - 1 else picture
+            if intra_mask.any():
+                mask_px = codec.expand_blocks(intra_mask, ctx.size, BLOCK)
+                picture = np.where(mask_px[..., None], target, picture)
+
             progress.report(i + 1, ctx.length)
-            yield color.to_uint8(out)
-
-
-def _p_frame(clip, first: int, second: int, size: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
-    """The P-frame that turns frame `first` of a clip into frame `second`: (F, E).
-
-    E(x) = second(x) - first(x + F(x)), the colour the motion alone cannot explain.
-    """
-    field = _field(clip, first, second, size)
-    predicted = warp.warp(clip.frame(first), field, "bilinear")
-    return field, clip.frame(second).astype(np.float32) - predicted
+            yield color.to_uint8(picture)
 
 
 def _opening_motions(clip, start: int, size: tuple[int, int]) -> list[np.ndarray]:
-    """The motions to repeat before the cut: people's own movement in B's first second.
-
-    For each non-repeated frame pair in B's first LOOK_AHEAD frames, the field's
-    average vector (the camera moving everything the same way) is subtracted, so
-    what remains is how things move relative to each other. Repeating a camera pan
-    would only slide A's picture off the screen; repeating local motion melts it.
-    The OPENING_COUNT pairs with the most local motion are kept, in time order.
-    """
+    """Local motions from B's opening frames with camera pan subtracted."""
     found = []
-    for first in range(start, min(start + LOOK_AHEAD, len(clip) - 1), LOOK_STEP):
-        if _same(clip.frame(first), clip.frame(first + 1)):
+    for first in range(start, min(start + LOOK_AHEAD, len(clip) - 1), 2):
+        if codec.frames_equal(clip.frame(first), clip.frame(first + 1)):
             continue
-        field = _field(clip, first, first + 1, size)
+        ref_y = color.bgr_to_y(clip.frame(first))
+        cur_y = color.bgr_to_y(clip.frame(first + 1))
+        vectors = codec.estimate_hierarchical(ref_y, cur_y, block=BLOCK, search=SEARCH)
+        field = motion.smooth_field(vectors, size, BLOCK, 0.5)
         local = field - field.mean(axis=(0, 1))
-        amount = float(((local[..., 0] ** 2 + local[..., 1] ** 2) ** 0.5).mean())
-        found.append((amount, first, local))
+        amount = float(np.abs(local).mean())
+        if amount > 0.15:
+            found.append((amount, first, local))
     if not found:
         width, height = size
         return [np.zeros((height, width, 2), np.float32)]
     strongest = sorted(found, key=lambda item: -item[0])[:OPENING_COUNT]
     return [local for _, _, local in sorted(strongest, key=lambda item: item[1])]
-
-
-def _same(a: np.ndarray, b: np.ndarray) -> bool:
-    """True if two frames are (almost) identical, i.e. a repeated frame."""
-    return float(np.abs(a.astype(np.float32) - b).mean()) < 0.5
-
-
-def _field(clip, first: int, second: int, size: tuple[int, int]) -> np.ndarray:
-    """Motion from frame `first` to frame `second` of a clip, as a smooth field (H, W, 2).
-
-    Block matching runs at half size (every second pixel, half the block and search)
-    to keep it fast, and the vectors are doubled back to full size.
-    """
-    reference = color.bgr_to_y(clip.frame(first))[::2, ::2]
-    current = color.bgr_to_y(clip.frame(second))[::2, ::2]
-    vectors = motion.estimate(reference, current, BLOCK // 2, SEARCH // 2)
-    vectors = _confident(vectors, reference, current, BLOCK // 2)
-    return motion.smooth_field(vectors * 2, size, BLOCK, 1.0)
-
-
-def _confident(vectors: np.ndarray, reference: np.ndarray, current: np.ndarray, block: int) -> np.ndarray:
-    """Block vectors with the unreliable ones set to (0, 0).
-
-    For each block, error(v) = sum of |current(x) - reference(x + v)| over its pixels.
-    A vector is kept only if error(v) < CONFIDENCE * error(0): the match must be
-    clearly better than "nothing moved", otherwise it is just noise.
-    """
-    height, width = current.shape
-    field = motion.to_field(vectors, (width, height), block)
-    moved = _block_sums(np.abs(current - warp.warp(reference, field)), block)
-    still = _block_sums(np.abs(current - reference), block)
-    out = vectors.copy()
-    out[~(moved < CONFIDENCE * still)] = 0
-    return out
-
-
-def _block_sums(values: np.ndarray, block: int) -> np.ndarray:
-    """Sum of an H x W array over each block; partial blocks at the edges sum what they have."""
-    height, width = values.shape
-    rows, cols = -(-height // block), -(-width // block)
-    padded = np.zeros((rows * block, cols * block), np.float32)
-    padded[:height, :width] = values
-    return padded.reshape(rows, block, cols, block).sum(axis=(1, 3))

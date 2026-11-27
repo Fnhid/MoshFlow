@@ -22,11 +22,11 @@ Per output frame (both clips keep their real speed):
   applied again on each of them (times `gain`), with nothing new coming in: a
   duplicated P-frame. The clip keeps running underneath, so after the pulse the
   picture snaps into the clip's current motion with the bloom baked in.
-- Refresh: every frame a share t of the blocks, chosen anew each frame, is
-  replaced by the live frame's block, whole (never blended), as an encoder's
-  intra refresh does; t = `heal` at the start (A mostly intact), falling to 0
-  at the cut (pure mosh), then rising to 1 at the end, so B takes over block
-  by block through the moving, damaged picture, where B moves first. Pulses get no trickle, so
+- Refresh: before the cut a share t of the blocks, chosen anew each frame, is
+  replaced by A's live block, whole (never blended), as an encoder's intra
+  refresh does; t = `heal` at the start, falling to 0 at the cut (pure mosh).
+  After the cut B overwrites the damaged picture block by block where it
+  changes, still areas last, with no fixed moment at which A has to be gone. Pulses get no trickle, so
   none may run into the last LAND part, where the picture settles into B.
 - The cut: B's I-frame is dropped; nothing is reset, and B's motion drives the
   damaged picture of A from then on. The last frame is B's real frame.
@@ -46,7 +46,6 @@ BLOCK = 16           # block size and search range of the motion, at full size
 SEARCH = 8
 CONFIDENCE = 0.7     # keep a block's vector only if it cuts the block's error to below 70 %
 LAND = 0.2           # no pulse may run into this last share of the transition
-KEYFRAME = 0.1       # B's blocks arrive within this last share, like a keyframe
 
 
 @register
@@ -73,7 +72,8 @@ class PFramePulse(TransitionEffect):
         field = np.zeros((height, width, 2), np.float32)
         held_left = 0
         fine = refresh.block_size(ctx.size)              # refreshed blocks: 8 x 8 at 720p
-        b_limits = refresh.thresholds(ctx.size, fine, ctx.seed, refresh.incoming_motion(ctx, fine))
+        takeover = refresh.Takeover(ctx, fine)
+        previous = None
         for i, (clip, index) in enumerate(frames.window_frames(ctx)):
             if progress.cancelled:
                 return
@@ -93,11 +93,15 @@ class PFramePulse(TransitionEffect):
                 field = _field_at(clip, index, field, ctx.size)
                 out, mask = _decode(out, mask, field)
                 out = mask[..., None] * out + (1.0 - mask[..., None]) * frame
-                # Before the cut the refreshed blocks are chosen anew every frame (A's own
-                # trickle); after it B's blocks arrive where B moves first.
-                limits = refresh.thresholds(ctx.size, fine, ctx.seed + i) if u <= cut else b_limits
-                taken = refresh.switched(_trickle(u, cut, p["heal"]), fine, limits, ctx.size)
+                if u <= cut:
+                    # Before the cut: A's own trickle, blocks chosen anew every frame.
+                    limits = refresh.thresholds(ctx.size, fine, ctx.seed + i)
+                    taken = refresh.switched(_trickle(u, cut, p["heal"]), fine, limits, ctx.size)
+                else:
+                    # After the cut: B overwrites the damaged picture where it changes.
+                    taken = takeover.step(previous, frame, (u - cut) / (1.0 - cut))
                 out = np.where(taken, frame, out)
+            previous = frame if clip is ctx.incoming else None
 
             if i == ctx.length - 1:
                 out = frame.copy()
@@ -121,15 +125,9 @@ def _decode(out: np.ndarray, mask: np.ndarray, field: np.ndarray):
 
 
 def _trickle(u: float, cut: float, heal: float) -> float:
-    """The share of blocks refreshed from the live frame at progress u.
-
-    `heal` at the start, falling to 0 at the cut; after the cut nothing is
-    refreshed until the last KEYFRAME share, where it rises to 1 within a few
-    frames, as when a real decoder gets B's next keyframe.
-    """
-    if u <= cut:
-        return heal * (1.0 - _smoothstep(u / cut)) if cut > 0 else 0.0
-    return _smoothstep((u - (1.0 - KEYFRAME)) / KEYFRAME)
+    """The share of A's blocks refreshed from A's live frame before the cut:
+    `heal` at the start, falling to 0 at the cut."""
+    return heal * (1.0 - _smoothstep(u / cut)) if cut > 0 else 0.0
 
 
 def _smoothstep(t: float) -> float:

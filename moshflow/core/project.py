@@ -23,8 +23,8 @@ class Clip:
 @dataclass(frozen=True)
 class Transition:
     effect: str = DEFAULT_EFFECT
-    duration: float = 1.0        # seconds
-    alignment: str = "center"    # "before" / "center" / "after" the cut
+    duration: float = 3.0        # seconds
+    alignment: str = "after"     # "before" / "center" / "after" the cut; after: A plays to its end
     params: Mapping[str, object] = field(default_factory=dict)
     seed: int = 0
 
