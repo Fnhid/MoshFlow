@@ -326,13 +326,16 @@ class Inspector(QFrame):
         start.valueChanged.connect(lambda v: self._update_clip(index, "trim start", start=v))
         trim_form.addRow("Start", start)
 
+        # End shows the clip's real end time; at the maximum the clip plays to its end
+        # (stored as None, so it still does if the file is replaced by a longer one).
+        last = max(total, clip.end or 0.0)
         end = QDoubleSpinBox()
-        end.setRange(0.0, max(total, clip.end or 0.0))
+        end.setRange(0.0, last)
         end.setDecimals(2)
         end.setSuffix(" s")
-        end.setSpecialValueText("End of clip")     # shown at the minimum value, 0
-        end.setValue(clip.end or 0.0)
-        end.valueChanged.connect(lambda v: self._update_clip(index, "trim end", end=v or None))
+        end.setValue(clip.end if clip.end is not None else last)
+        end.valueChanged.connect(
+            lambda v: self._update_clip(index, "trim end", end=None if v >= last - 0.005 else v))
         trim_form.addRow("End", end)
         trim_layout.addLayout(trim_form)
         root.addWidget(trim_card)
