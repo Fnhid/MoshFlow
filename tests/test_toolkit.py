@@ -177,3 +177,38 @@ def test_warp_keeps_colour_channels_and_the_input():
     out = call(warp.warp, image, field)
     assert out.shape == (4, 5, 3)
     assert np.array_equal(out[1:], image[:-1]) and np.array_equal(out[0], image[0])
+
+
+# --- refresh -----------------------------------------------------------------
+
+from moshflow.toolkit import refresh
+
+
+def test_refresh_switches_whole_blocks_only():
+    size, block = (40, 24), 8
+    limits = refresh.thresholds(size, block, seed=3)
+    assert limits.shape == (3, 5) and (limits > 0).all() and (limits < 1).all()
+    share = np.zeros((24, 40), np.float32)
+    share[:8, :8] = 1.0                                   # only the first block is due
+    taken = refresh.switched(share, block, limits, size)
+    assert taken.shape == (24, 40, 1) and taken.dtype == bool
+    assert taken[:8, :8].all() and not taken[8:].any() and not taken[:, 8:].any()
+
+
+def test_refresh_none_at_zero_all_at_one():
+    size, block = (37, 21), 8                             # edge blocks smaller than 8 x 8
+    limits = refresh.thresholds(size, block, seed=0)
+    assert not refresh.switched(0.0, block, limits, size).any()
+    assert refresh.switched(1.0, block, limits, size).all()
+    half = refresh.switched(0.5, block, limits, size)[..., 0]
+    for r in range(0, 21, 8):                             # every block is all True or all False
+        for c in range(0, 37, 8):
+            cell = half[r:r + 8, c:c + 8]
+            assert cell.all() or not cell.any()
+
+
+def test_refresh_priority_switches_moving_blocks_first():
+    size, block = (32, 16), 8
+    priority = np.zeros((2, 4)); priority[1, 3] = 9.0      # the new clip moves only here
+    limits = refresh.thresholds(size, block, seed=1, priority=priority)
+    assert limits[1, 3] == limits.min()
