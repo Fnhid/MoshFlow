@@ -33,6 +33,7 @@ the video files, the encoder or the project file.
 | `moshflow/toolkit/frames.py` | `window_frames`, `last_clean_a` | Yuhyeon Cha |
 | `moshflow/toolkit/motion.py` | `estimate`, `to_field`, `smooth_field` | Yuhyeon Cha |
 | `moshflow/toolkit/warp.py` | `warp` | Yuhyeon Cha |
+| `moshflow/toolkit/refresh.py` | `thresholds`, `switched`, `block_mean`, `to_pixels` | Yuhyeon Cha |
 | `moshflow/effects/hard_cut.py`, `crossfade.py` | Working reference effects | Yuhyeon Cha |
 | `moshflow/effects/keyframe_drop.py`, `motion_bloom.py`, `liquid_melt.py` | Optional sample skeletons | Anyone |
 | `moshflow/effects/<your_effect>.py` | Your own effect | Its author |
@@ -196,6 +197,27 @@ the block `50 60 / 70 80` moves from (1, 1) to (2, 2), so `estimate` gives
 `v = (-1, -1)`, and `warp` makes pixel (2, 2) read pixel (1, 1).
 
 `tests/test_toolkit.py` checks these results.
+
+### Block refresh (refresh.py)
+
+A real decoder never mixes two pictures. When a keyframe is lost, the new clip
+arrives in whole blocks: fresh (intra) blocks where the motion prediction fails,
+and everything at the next keyframe. So effects do not blend A and B with a
+weight (`P + h (B - P)` looks like a crossfade); a block shows one picture or the
+other.
+
+| Function | Does |
+| --- | --- |
+| `refresh.thresholds(size, block, seed)` | One threshold per block, `(rows, cols)`, between 0.15 and 0.85 |
+| `refresh.switched(share, block, limits, size)` | `(H, W, 1)` bool: True in every block whose mean `share` (a per-pixel map or one number) has reached its threshold. All False at 0, all True at 1 |
+| `refresh.block_mean(values, block)` | Mean of an `(H, W)` map per block |
+| `refresh.to_pixels(blocks, block, size)` | `(H, W, 1)` from a `(rows, cols)` bool map |
+
+```python
+limits = refresh.thresholds(ctx.size, 16, ctx.seed)
+taken = refresh.switched(share, 16, limits, ctx.size)
+picture = np.where(taken, b_frame, picture)
+```
 
 Speed: on a 1280 × 720 frame, `estimate` with block 16 and search 8 takes about
 0.35 s on our test laptop, and `warp` about 0.03 s. For long transitions, estimate

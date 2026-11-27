@@ -22,9 +22,11 @@ Per output frame (both clips keep their real speed):
   applied again on each of them (times `gain`), with nothing new coming in: a
   duplicated P-frame. The clip keeps running underneath, so after the pulse the
   picture snaps into the clip's current motion with the bloom baked in.
-- Trickle: out <- out + t (frame - out), with t = `heal` at the start (A mostly
-  intact) falling to 0 at the cut (pure mosh), then rising to 1 at the end, so
-  B takes over through the moving, damaged picture. Pulses get no trickle, so
+- Refresh: every frame a share t of the blocks, chosen anew each frame, is
+  replaced by the live frame's block, whole (never blended), as an encoder's
+  intra refresh does; t = `heal` at the start (A mostly intact), falling to 0
+  at the cut (pure mosh), then rising to 1 at the end, so B takes over block
+  by block through the moving, damaged picture, where B moves first. Pulses get no trickle, so
   none may run into the last LAND part, where the picture settles into B.
 - The cut: B's I-frame is dropped; nothing is reset, and B's motion drives the
   damaged picture of A from then on. The last frame is B's real frame.
@@ -38,7 +40,7 @@ centres.
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, IntParam, TransitionEffect, register
-from moshflow.toolkit import color, frames, motion, warp
+from moshflow.toolkit import color, frames, motion, refresh, warp
 
 BLOCK = 16           # block size and search range of the motion, at full size
 SEARCH = 8
@@ -69,6 +71,7 @@ class PFramePulse(TransitionEffect):
         mask = np.ones((height, width), np.float32)
         field = np.zeros((height, width, 2), np.float32)
         held_left = 0
+        b_limits = refresh.thresholds(ctx.size, BLOCK, ctx.seed, refresh.incoming_motion(ctx, BLOCK))
         for i, (clip, index) in enumerate(frames.window_frames(ctx)):
             if progress.cancelled:
                 return
@@ -88,7 +91,11 @@ class PFramePulse(TransitionEffect):
                 field = _field_at(clip, index, field, ctx.size)
                 out, mask = _decode(out, mask, field)
                 out = mask[..., None] * out + (1.0 - mask[..., None]) * frame
-                out = out + _trickle(u, cut, p["heal"]) * (frame - out)
+                # Before the cut the refreshed blocks are chosen anew every frame (A's own
+                # trickle); after it B's blocks arrive where B moves first.
+                limits = refresh.thresholds(ctx.size, BLOCK, ctx.seed + i) if u <= cut else b_limits
+                taken = refresh.switched(_trickle(u, cut, p["heal"]), BLOCK, limits, ctx.size)
+                out = np.where(taken, frame, out)
 
             if i == ctx.length - 1:
                 out = frame.copy()
@@ -112,14 +119,16 @@ def _decode(out: np.ndarray, mask: np.ndarray, field: np.ndarray):
 
 
 def _trickle(u: float, cut: float, heal: float) -> float:
-    """How much of the live frame trickles in at progress u.
+    """The share of blocks refreshed from the live frame at progress u.
 
-    `heal` at the start, falling to 0 at the cut, then rising to 1 at the end.
+    `heal` at the start, falling to 0 at the cut, then rising to 1 at the end:
+    slowly at first (v^4), so the mosh holds for most of B's part, as it does
+    until a real decoder gets B's next keyframe.
     """
     if u <= cut:
         return heal * (1.0 - _smoothstep(u / cut)) if cut > 0 else 0.0
     v = _smoothstep((u - cut) / (1.0 - cut))
-    return v * v
+    return v ** 4
 
 
 def _smoothstep(t: float) -> float:

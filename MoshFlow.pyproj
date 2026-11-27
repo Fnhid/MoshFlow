@@ -59,6 +59,7 @@
     <Compile Include="moshflow\toolkit\color.py" />
     <Compile Include="moshflow\toolkit\frames.py" />
     <Compile Include="moshflow\toolkit\motion.py" />
+    <Compile Include="moshflow\toolkit\refresh.py" />
     <Compile Include="moshflow\toolkit\resize.py" />
     <Compile Include="moshflow\toolkit\warp.py" />
     <Compile Include="moshflow\ui\__init__.py" />

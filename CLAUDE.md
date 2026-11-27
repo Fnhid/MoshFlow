@@ -65,6 +65,8 @@ One file in `moshflow/effects/`, one `TransitionEffect` subclass with `@register
 (`frame.astype(np.float32)`) and convert back with `color.to_uint8`. Use
 `ctx.seed` for any randomness, check `progress.cancelled` in every loop, and
 declare every tunable value in `param_specs()`. No file I/O, UI calls or global state.
+Never blend clip A and clip B with a weight (`P + h * (B - P)` looks like a crossfade, not a
+datamosh): a block shows one picture or the other. Use `toolkit/refresh.py` to switch blocks to B.
 
 Keyframe Drop, Motion Bloom and Liquid Melt are optional sample skeletons. A member
 may finish one, change it, or delete it and write something else; nobody has to

@@ -29,15 +29,12 @@ The transition:
 - After the cut, B's I-frame is dropped, as in a datamosh transition. B's
   P-frames are decoded on the same picture with A's vectors (A's last frames),
   which trade back to B's own after 40 % of B's part.
-- B emerges pixel by pixel, never block by block: after each frame every pixel
-  moves a step towards B's real frame, P += h (B' - P), where B' is B offset by
+- B emerges block by block, never blended: a block turns into B', B offset by
   how far the vectors are still swapped, B(x + s (v_A - v_B)), so B arrives
-  moving the way A moved. The steps follow a planned share of B per pixel: it
-  starts rising at the cut where B changes most and halfway through B's part
-  where B is still, eases in and out, and reaches 1 on the last frame. How much
-  B changes is measured per block and interpolated between block centres, so
-  no block edges appear. What is shown also mixes in B's real frame by share^2,
-  so the end is B's sharp footage.
+  moving the way A moved, once B's planned share there reaches the block's own
+  threshold. The share starts rising at the cut where B changes most and
+  halfway through B's part where B is still, and reaches 1 on the last frame,
+  which is B's real frame.
 - Both clips keep their real speed: frame k uses the P-frame from k - 1 to k. A
   repeated (duplicate) frame has no P-frame; the previous vectors carry on.
 
@@ -48,7 +45,7 @@ so flat or blurry areas do not slide at random.
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, TransitionEffect, register
-from moshflow.toolkit import color, motion, warp
+from moshflow.toolkit import color, motion, refresh, warp
 
 BLOCK = 16           # macroblock size: one motion vector per block
 SEARCH = 8           # search range of the block matching, at full size
@@ -85,7 +82,7 @@ class VectorSwap(TransitionEffect):
         first_b = min(ctx.b_window.start, len(b) - 1)
         emerge_from = a_frames if b_frames else round(ctx.length * (1 - NO_B_PART))
         start = LATE_START - (LATE_START - EARLY_START) * _change_map(b, first_b, ctx.size)
-        shown = np.zeros((height, width), np.float32)      # B's planned share so far
+        limits = refresh.thresholds(ctx.size, BLOCK, ctx.seed, refresh.incoming_motion(ctx, BLOCK))
 
         picture = a.frame(max(ctx.a_window.start - 1, 0)).astype(np.float32)
         zero = np.zeros((rows, cols, 2), np.float32)
@@ -125,9 +122,10 @@ class VectorSwap(TransitionEffect):
             picture = np.clip(picture, 0.0, 255.0)
 
             if i < a_frames:
-                # A plays normally until the swap takes over: where the swap has not
-                # reached yet, the picture is A's real frame.
-                picture = picture + (1.0 - taken) * (real - picture)
+                # A plays normally until the swap takes over: a block shows A's real
+                # frame until the swap has reached that block.
+                swapped = refresh.switched(taken, BLOCK, limits, ctx.size)
+                picture = np.where(swapped, picture, real)
             out = picture
             if i >= emerge_from:
                 # B emerges pixel by pixel along a planned share (see the docstring).
@@ -137,13 +135,9 @@ class VectorSwap(TransitionEffect):
                 v = (i + 1 - emerge_from) / (ctx.length - emerge_from)
                 ramp = np.clip((v - start) / (1.0 - start), 0.0, 1.0)
                 share = ramp * ramp * (3.0 - 2.0 * ramp)
-                if i == ctx.length - 1:
-                    h = np.ones_like(share)
-                else:
-                    h = np.where(share >= 1.0, 1.0, 1.0 - (1.0 - share) / np.maximum(1.0 - shown, 1e-6))
-                picture = picture + np.clip(h, 0.0, 1.0)[..., None] * (arriving - picture)
-                shown = share
-                out = picture + (share * share)[..., None] * (target - picture)
+                arrived = refresh.switched(share, BLOCK, limits, ctx.size)
+                picture = np.where(arrived, arriving, picture)
+                out = target if i == ctx.length - 1 else picture
 
             progress.report(i + 1, ctx.length)
             yield color.to_uint8(out)
