@@ -213,6 +213,8 @@ other.
 | `refresh.switched(share, block, limits, size)` | `(H, W, 1)` bool: True in every block whose mean `share` (a per-pixel map or one number) has reached its threshold. All False at 0, all True at 1 |
 | `refresh.block_mean(values, block)` | Mean of an `(H, W)` map per block |
 | `refresh.to_pixels(blocks, block, size)` | `(H, W, 1)` from a `(rows, cols)` bool map |
+| `refresh.block_size(size)` | The switching block size: 8 at 720p, scaled with the frame height |
+| `refresh.Takeover(ctx, block)`, `.step(b_before, b_now, progress)` | Blocks clip B has taken so far: each block adds up B's motion-compensated residual (a camera pan does not count) plus a time share growing as progress³, and switches at its threshold; all are B at the end |
 
 ```python
 limits = refresh.thresholds(ctx.size, 16, ctx.seed)
@@ -243,18 +245,23 @@ without alpha cross-fading or repeated bilinear blur:
 
 ## Finished effects
 
-Keyframe Drop, Motion Bloom, Liquid Melt, Pulse Mosh and Bake Smear are finished. Each member's file only has
-to follow this API; the parameters below are what the Inspector shows today.
+Eight datamosh effects are finished, plus Hard Cut and Crossfade. Each member's file only
+has to follow this API; the parameters below are what the Inspector shows today. Every
+one switches clip B in whole blocks, never blended, and lets B wear clip A away as it
+plays instead of replacing A at a fixed moment.
 
 | Effect | id | Parameters |
 | --- | --- | --- |
-| Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 16 (1–32), `heal` float 0.0 (0–1) |
-| Motion Bloom | `motion_bloom` | `gain` float 1.0 (0–4), `residual` float 1.0 (0–2), `emerge` float 1.0 (0–3) |
-| Liquid Melt | `liquid_melt` | `look` pixel / liquid, `direction` right / left, `pixel` int 8 (1–32), `melt` float 2.0 (0–6), `strength` float 1.5 (0–3), `inertia` float 0.6 (0–0.95), `imprint` float 0.6 (0–1), `settle` float 0.35 (0–1), `block` int 16 (8–64) |
-| Pulse Mosh | `pulse_mosh` | `period` int 6 (2–30), `gain` float 1.4 (0–4), `residual` float 0.9 (0–2), `block` int 16 (8–32), `exit` snap / intra |
-| Bake Smear | `bake_smear` | `gain` float 1.3 (0–4), `pull` float 1.0 (0–3), `residual` float 0.9 (0–2), `exit` intra / snap |
+| Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 16 (1–32), `heal` float 0.005 (0–1) |
+| Motion Bloom | `motion_bloom` | `gain` float 1 (0–4), `residual` float 1 (0–2), `emerge` float 1 (0–3) |
+| Liquid Melt | `liquid_melt` | `look` pixel / liquid, `direction` right / left, `pixel` int 8 (1–32), `melt` float 2 (0–6), `strength` float 1.5 (0–3), `inertia` float 0.6 (0–0.95), `imprint` float 0.6 (0–1), `settle` float 0.35 (0–1), `block` int 16 (8–64), `search` int 8 (2–32), `smoothness` float 1 (0–1) |
+| Vector Swap | `vector_swap` | `swap` float 1 (0–1), `gain` float 1 (0–4), `residual` float 1 (0–2) |
+| P-frame Pulse | `pframe_pulse` | `interval` int 15 (3–60), `hold` int 8 (1–59), `gain` float 1 (0–4), `heal` float 0.3 (0–1) |
+| DCT Crush | `dct_crush` | `timing` at the cut / stretch, `block` int 8 (4–32), `sensitivity` float 0.06 (0–3), `colour` float 0.03 (0–3), `crush` float 6 (0–30), `chroma` float 2 (1–8), `heal` float 1 (0.05–1), `search` int 8 (2–32) |
+| Pulse Mosh | `pulse_mosh` | `period` int 6 (2–30), `gain` float 1.4 (0–4), `residual` float 0.9 (0–2), `block` int 16 (8–32), `exit` intra / snap |
+| Bake Smear | `bake_smear` | `gain` float 1.3 (0–4), `pull` float 1 (0–3), `residual` float 0.9 (0–2), `exit` intra / snap |
 
-Keyframe Drop works best with the `after` alignment and a clip B with clear motion.
+New transitions sit after the cut and last 3 s by default, so clip A plays to its end.
 When a new effect works, remove `(draft)` from its `info.name`.
 
 ## Library rule
