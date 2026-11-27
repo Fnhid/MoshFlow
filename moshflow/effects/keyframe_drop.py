@@ -11,10 +11,11 @@ For one pixel (x, y) of the picture R kept between output frames, in clip B:
    A block whose vector hardly beats standing still keeps (0, 0).
 2. Residual: R(x, y) += B_now(x, y) - B_before(x + dx, y + dy). If B was predicted as
    100 and is really 120, the pixel gets 20 brighter, whatever A's value is.
-3. Healing:  R += heal * (B - R), only in blocks that move, because a P-frame sends
-   almost nothing for the others. With heal = 0.02, R = 200 and B = 100 give 198.
-4. Blend:    the last 4 frames go 1/5, 2/5, 3/5 and 4/5 of the way to B, so the still
-   areas, where A's picture stays until then, do not jump when B plays again.
+3. Healing:  a block that moves collects `heal` every frame; once it has collected
+   its own threshold (0.15 to 0.85), the whole block becomes B's real block, as an
+   encoder sends a fresh (intra) block. A block is A's or B's, never a mix of both.
+4. Refresh:  over the last 4 frames the remaining blocks switch to B, block by block,
+   so the still areas, where A's picture stays until then, do not jump all at once.
 
 Frames of A inside the window are intact.
 """
@@ -22,10 +23,10 @@ Frames of A inside the window are intact.
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, IntParam, TransitionEffect, register
-from moshflow.toolkit import color, frames, motion, warp
+from moshflow.toolkit import color, frames, motion, refresh, warp
 
 SKIP_GAIN = 1.0    # a vector must lower the mean luma error of its block by this many levels
-BLEND_FRAMES = 4   # length of the final blend, at most a quarter of B's frames
+REFRESH_FRAMES = 4  # length of the final block refresh, at most a quarter of B's frames
 
 
 @register
@@ -45,7 +46,9 @@ class KeyframeDrop(TransitionEffect):
         block, search, heal = ctx.params["block"], ctx.params["search"], ctx.params["heal"]
         picture = frames.last_clean_a(ctx).astype(np.float32)
         previous = None    # the B frame before the current one
-        blend = min(BLEND_FRAMES, len(ctx.b_window) // 4)
+        blend = min(REFRESH_FRAMES, len(ctx.b_window) // 4)
+        limits = refresh.thresholds(ctx.size, block, ctx.seed, refresh.incoming_motion(ctx, block))
+        healed = np.zeros(limits.shape, np.float32)     # what each block has collected
 
         for i, (clip, index) in enumerate(frames.window_frames(ctx)):
             if progress.cancelled:
@@ -60,13 +63,15 @@ class KeyframeDrop(TransitionEffect):
                     field = motion.to_field(vectors, ctx.size, block)
                     residual = current - warp.warp(previous, field)
                     picture = np.clip(warp.warp(picture, field) + residual, 0, 255)
-                    moving = (field != 0).any(axis=2)
-                    picture[moving] += heal * (current[moving] - picture[moving])
+                    moving = (field != 0).any(axis=2).astype(np.float32)
+                    healed += heal * (refresh.block_mean(moving, block) > 0)
+                    picture = np.where(refresh.to_pixels(healed >= limits, block, ctx.size), current, picture)
                 previous = current
-                # Equal steps: 1/5 of the difference, then 1/4 of what remains, and so on.
+                # The last frames: the remaining blocks switch to B, the last one on the last frame.
                 left = ctx.length - i
                 if left <= blend:
-                    picture = picture + (current - picture) / (left + 1)
+                    share = (blend - left + 1) / blend
+                    picture = np.where(refresh.switched(share, block, limits, ctx.size), current, picture)
 
             progress.report(i + 1, ctx.length)
             yield color.to_uint8(picture)

@@ -20,10 +20,11 @@ Every melting frame:
    the push.
 3. The picture is moved by the velocity. `look` "pixel" copies the nearest whole
    pixel, so the currents leave jagged pixel streaks; "liquid" mixes neighbours.
-4. Imprint: where the video moved, a pixel's brightness moves towards clip B's
-   brightness while A's colour stays, more as the transition goes on (fully once the
-   video moved 8 pixels there in total, at 480p), so B's shapes appear inside the
-   melting picture. Where nothing moved, A's picture is untouched.
+4. Imprint: where the video moved, blocks take clip B's brightness while A's colour
+   stays, more blocks as the transition goes on (all of them once the video moved
+   8 pixels there in total, at 480p), so B's shapes appear inside the melting
+   picture. A block takes B's brightness whole or not at all, never half. Where
+   nothing moved, A's picture is untouched.
 5. Pixelation ("pixel" look): where the picture flows faster than 1 pixel per frame
    it is drawn in square cells of up to `pixel` size, each cell showing the colour
    at its centre; still parts stay sharp. Cells grow while the picture melts and
@@ -33,7 +34,7 @@ Every melting frame:
    share B flows in where the video moved most first and spreads outwards from there
    instead: the movement is let seep outwards over the block grid, the blocks are
    ranked, and the ranks are interpolated between block centres, so B's edge is
-   smooth like a liquid.
+   rounded like a liquid; each pixel is A's or B's, never a mix.
 
 Block size, search range and pixel size are given for 480p; larger frames scale
 them (x2 at 1080p), so the effect looks the same at every resolution.
@@ -47,7 +48,7 @@ cell. On the window's last frame it shows clip B.
 import numpy as np
 
 from moshflow.api import ChoiceParam, EffectInfo, FloatParam, IntParam, TransitionEffect, register
-from moshflow.toolkit import color, frames, motion, warp
+from moshflow.toolkit import color, frames, motion, refresh, warp
 
 CUT_LEVEL = 40.0    # mean luma difference above which two frames are a scene cut, not motion
 USEFUL_GAIN = 2.0   # luma levels per pixel a vector must save over standing still to count
@@ -99,6 +100,7 @@ class LiquidMelt(TransitionEffect):
         settle_start = melt_frames - settle_frames
         n = 2 * max(p["block"] // 2, 1) * scale               # block size in pixels
         jitter = rng.random((-(-height // n), -(-width // n))).astype(np.float32)
+        limits = refresh.thresholds(ctx.size, n, ctx.seed)
         pour_order = None                                     # when each pixel's B arrives, 0..1
         done, previous = 0, None
 
@@ -129,8 +131,11 @@ class LiquidMelt(TransitionEffect):
             # Step 4: B's brightness shows through A's colours where B has moved: fully
             # once B moved 8 pixels (at 480p) there in total, not at all where B is still.
             moved = _upsample(np.clip(_block_means(activity, n) / (8.0 * scale), 0.0, 1.0), ctx.size, n)
+            # A block takes B's brightness whole once its share reaches the block's
+            # threshold; it is never half A's and half B's.
             w = p["imprint"] * t * t * (3.0 - 2.0 * t) * moved
-            out = picture + (w * (color.bgr_to_y(target) - color.bgr_to_y(picture)))[..., None]
+            imprinted = refresh.switched(w, n, limits, ctx.size)
+            out = np.where(imprinted, picture + (color.bgr_to_y(target) - color.bgr_to_y(picture))[..., None], picture)
 
             # Step 6: B pours in where it moved most first and spreads outwards from
             # there, behind a soft liquid edge; the last pixel goes on the last frame.
@@ -138,11 +143,7 @@ class LiquidMelt(TransitionEffect):
                 s = (i - settle_start + 1) / settle_frames
                 if pour_order is None:
                     pour_order = _pour_order(_block_means(activity, n), jitter, ctx.size, n)
-                if pixel_look:
-                    alpha = (pour_order < s).astype(np.float32)
-                else:
-                    alpha = np.clip((s - pour_order) / 0.08 + 0.5, 0.0, 1.0)
-                out = out + alpha[..., None] * (target - out)
+                out = np.where((pour_order < s)[..., None], target, out)
 
             # Step 5: draw in pixel cells that grow while melting and shrink at the end.
             if pixel_look and cell_max > 1:
