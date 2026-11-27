@@ -329,3 +329,14 @@ def test_launcher_prints_guide_when_python_too_old(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "Python 3.10" in err
     assert "requirements.txt" in err
+
+
+def test_clip_end_shows_the_clip_length_by_default(window):
+    window.model.add_clip(window.paths[0])                 # 30 frames at 10 fps: 3 s
+    click(window, (CLIP, 0))
+    start_box, end_box = window.inspector.findChildren(QDoubleSpinBox)[:2]
+    assert end_box.value() == pytest.approx(3.0) and window.model.project.clips[0].end is None
+    end_box.setValue(2.0)
+    assert window.model.project.clips[0].end == pytest.approx(2.0)
+    end_box.setValue(end_box.maximum())                   # back to the end: plays to the end again
+    assert window.model.project.clips[0].end is None
