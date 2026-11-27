@@ -29,7 +29,9 @@ On Windows, use `.venv\Scripts\` instead of `.venv/bin/`.
 ## Use
 
 1. **Import** videos into the Media Bin.
-2. Drag them onto the timeline. Drag to reorder; press Delete to remove.
+2. Drag them onto the timeline. Drag to reorder; press Delete to remove. Drag a clip's
+   left or right edge to trim it, or play the clip in the preview and press **I** / **O**
+   (or **Set start** / **Set end**) to start or end it at the frame shown.
 3. Click a transition chip between two clips and choose its effect, duration
    and parameters in the Inspector.
 4. Press **Export**. The video is written in the background.

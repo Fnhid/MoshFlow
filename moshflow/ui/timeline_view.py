@@ -1,10 +1,13 @@
 """TimelineView: clips from left to right with a timecode ruler and transition chips.
 
-Click selects a clip or a chip, dragging a clip reorders it, Delete removes it,
-and clips can be dropped in from the media bin or the file manager.
+Click selects a clip or a chip, dragging a clip reorders it, dragging a clip's left
+or right edge trims it, Delete removes it, and clips can be dropped in from the
+media bin or the file manager.
 """
 
 import os
+from dataclasses import replace
+from itertools import count
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPixmap
@@ -44,6 +47,8 @@ CLIP_TOP = RULER_HEIGHT + 14
 CLIP_HEIGHT = 68
 CHIP_HEIGHT = 46
 THUMB_SIZE = (54, 34)
+EDGE = 7                 # pixels on each side of a clip edge that grab it for trimming
+MIN_CLIP_SECONDS = 0.1   # a trimmed clip keeps at least this length
 
 
 class TimelineView(QGraphicsView):
@@ -69,6 +74,9 @@ class TimelineView(QGraphicsView):
         self._press_pos: QPointF | None = None
         self._drag_clip: int | None = None
         self._marker = None
+        self._trim: tuple[int, str, float, float, int] | None = None   # index, side, press x, value, step
+        self._drags = count()
+        self.viewport().setMouseTracking(True)
 
         model.changed.connect(self.rebuild)
         model.selectionChanged.connect(self.rebuild)
@@ -244,6 +252,28 @@ class TimelineView(QGraphicsView):
                 return kind, index
         return None
 
+    def _edge(self, scene_pos: QPointF) -> tuple[int, str] | None:
+        """(clip index, "start" or "end") when the point is on a clip's left or right edge."""
+        for index, rect in enumerate(self._clip_rects):
+            if rect.top() <= scene_pos.y() <= rect.bottom():
+                if abs(scene_pos.x() - rect.left()) <= EDGE:
+                    return index, "start"
+                if abs(scene_pos.x() - rect.right()) <= EDGE:
+                    return index, "end"
+        return None
+
+    def _trimmed(self, index: int, side: str, value: float, dx: float):
+        """The clip with its start or end moved by dx pixels, kept inside the file."""
+        clip = self._model.project.clips[index]
+        info = self._model.info(clip.path)
+        total = info.duration if info else value
+        end = total if clip.end is None else min(clip.end, total)
+        seconds = value + dx / self._pixels_per_second
+        if side == "start":
+            return replace(clip, start=round(min(max(seconds, 0.0), end - MIN_CLIP_SECONDS), 2))
+        seconds = round(min(max(seconds, clip.start + MIN_CLIP_SECONDS), total), 2)
+        return replace(clip, end=None if seconds >= total - 0.005 else seconds)
+
     def _insert_index(self, x: float) -> int:
         return sum(1 for rect in self._clip_rects if rect.center().x() < x)
 
@@ -276,7 +306,18 @@ class TimelineView(QGraphicsView):
         if event.button() != Qt.LeftButton:
             return
         self.setFocus()
-        hit = self._hit(self.mapToScene(event.position().toPoint()))
+        scene_pos = self.mapToScene(event.position().toPoint())
+        edge = self._edge(scene_pos)
+        if edge is not None:                      # start trimming that edge
+            index, side = edge
+            clip = self._model.project.clips[index]
+            info = self._model.info(clip.path)
+            total = info.duration if info else 0.0
+            value = clip.start if side == "start" else (total if clip.end is None else clip.end)
+            self._trim = (index, side, scene_pos.x(), value, next(self._drags))
+            self._model.select(CLIP, index)
+            return
+        hit = self._hit(scene_pos)
         self._press_pos = event.position()
         self._drag_clip = hit[1] if hit and hit[0] == CLIP else None
         if hit:
@@ -285,7 +326,16 @@ class TimelineView(QGraphicsView):
             self._model.select(None)
 
     def mouseMoveEvent(self, event) -> None:
-        if self._drag_clip is None or self._press_pos is None:
+        scene_pos = self.mapToScene(event.position().toPoint())
+        if self._trim is not None:
+            index, side, press_x, value, step = self._trim
+            clip = self._trimmed(index, side, value, scene_pos.x() - press_x)
+            self._model.set_clip(index, clip, f"trim {side}", step)
+            return
+        if self._drag_clip is None:
+            self.viewport().setCursor(Qt.SizeHorCursor if self._edge(scene_pos) else Qt.ArrowCursor)
+            return
+        if self._press_pos is None:
             return
         if (event.position() - self._press_pos).manhattanLength() < QApplication.startDragDistance():
             return
@@ -293,6 +343,11 @@ class TimelineView(QGraphicsView):
         self._show_marker(self._insert_index(scene_x))
 
     def mouseReleaseEvent(self, event) -> None:
+        if self._trim is not None:
+            index = self._trim[0]
+            self._trim = None
+            self._model.select(CLIP, index)       # the Inspector shows the new start and end
+            return
         moving = self._marker is not None and self._drag_clip is not None
         self._hide_marker()
         src, self._drag_clip, self._press_pos = self._drag_clip, None, None

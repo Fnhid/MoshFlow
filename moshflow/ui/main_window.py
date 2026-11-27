@@ -142,6 +142,13 @@ class MainWindow(QMainWindow):
         redo = self.model.undo_stack.createRedoAction(self, "&Redo")
         redo.setShortcut(QKeySequence.Redo)
         edit.addActions([undo, redo])
+        edit.addSeparator()
+        for text, key, handler in [("Set Clip &Start Here", "I", self.preview.set_start_here),
+                                   ("Set Clip &End Here", "O", self.preview.set_end_here)]:
+            action = QAction(text, self)
+            action.setShortcut(key)        # text fields still take the letters when focused
+            action.triggered.connect(lambda _=False, h=handler: h())
+            edit.addAction(action)
         render = self.menuBar().addMenu("&Render")
         export = QAction("&Export", self)
         export.setShortcut("Ctrl+E")

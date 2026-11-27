@@ -1,5 +1,6 @@
 """PreviewPanel: center monitor for inspecting clips and playing transition previews."""
 
+from dataclasses import replace
 import numpy as np
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap
@@ -137,12 +138,23 @@ class PreviewPanel(QFrame):
         self.timecode = QLabel("00:00.00 / 00:00.00")
         self.timecode.setProperty("role", "timecode")
 
+        # Trim the selected clip at the frame shown (also the I and O keys).
+        self.start_button = QPushButton("Set start")
+        self.end_button = QPushButton("Set end")
+        for button, slot, tip in ((self.start_button, self.set_start_here, "Start the clip at this frame (I)"),
+                                  (self.end_button, self.set_end_here, "End the clip at this frame (O)")):
+            button.setProperty("compact", True)
+            button.setToolTip(tip)
+            button.clicked.connect(slot)
+
         transport = QHBoxLayout()
         transport.setContentsMargins(0, 0, 0, 0)
         transport.setSpacing(10)
         transport.addWidget(self.play_button)
         transport.addWidget(self.scrubber, 1)
         transport.addWidget(self.timecode)
+        transport.addWidget(self.start_button)
+        transport.addWidget(self.end_button)
 
         self.status_label = QLabel("")
         self.status_label.setProperty("role", "muted")
@@ -158,6 +170,39 @@ class PreviewPanel(QFrame):
         model.changed.connect(self.refresh)
         model.selectionChanged.connect(self.refresh)
         self.refresh()
+
+    # --- trimming at the frame shown --------------------------------------
+    def playhead_time(self) -> float | None:
+        """Time in the selected clip's file of the frame shown, or None if no clip is shown."""
+        if self._clip_range is None or self._rendered is not None:
+            return None
+        _, start_f, _, fps = self._clip_range
+        return (start_f + self._current_index) / (fps or 30.0)
+
+    def set_start_here(self) -> None:
+        self._trim_here("start")
+
+    def set_end_here(self) -> None:
+        self._trim_here("end")
+
+    def _trim_here(self, side: str) -> None:
+        selection = self._model.selection
+        time = self.playhead_time()
+        if time is None or not selection or selection[0] != CLIP:
+            return
+        index = selection[1]
+        clip = self._model.project.clips[index]
+        info = self._model.info(clip.path)
+        total = info.duration if info else time
+        end = total if clip.end is None else min(clip.end, total)
+        time = round(time, 2)
+        if side == "start" and time < end - 0.05:
+            self._model.set_clip(index, replace(clip, start=time), "trim start", object())
+        elif side == "end" and time > clip.start + 0.05:
+            # The frame shown stays in: the clip ends after it.
+            stop = round(time + 1.0 / (self._clip_range[3] or 30.0), 2)
+            self._model.set_clip(index, replace(clip, end=None if stop >= total - 0.005 else stop), "trim end", object())
+        self._model.select(CLIP, index)
 
     def _set_status(self, message: str = "") -> None:
         self.status_label.setText(message)
