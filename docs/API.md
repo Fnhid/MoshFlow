@@ -202,6 +202,21 @@ Speed: on a 1280 × 720 frame, `estimate` with block 16 and search 8 takes about
 on every second pixel (`luma[::2, ::2]`, with half the block and search) and double
 the vectors.
 
+### Codec-style P-frame and coordinate advection (codec.py)
+
+Shared building blocks for datamosh transitions that preserve clip A's sharp colours
+without alpha cross-fading or repeated bilinear blur:
+
+| Function | Does |
+| --- | --- |
+| `codec.estimate_hierarchical(ref, cur, block=16, search=24, smooth=True)` | Coarse-to-fine 3-level pyramid block matching (2x2 box downsample + local refinement + 5-neighbour sorting-network median filter) covering up to `+-search` pixels |
+| `codec.median_vectors(vectors)` | 5-neighbour cross median filter on `(rows, cols, 2)` block vectors via pairwise min/max compare-exchange |
+| `codec.quantize_residual(error, quant=14.0, chroma_scale=0.25)` | H.263-style inter dead-zone quantization (`2.5 * quant` dead zone) with stronger chroma attenuation so brightness contours etch into A's colour palette |
+| `codec.analyze_pframe(ref_bgr, cur_bgr, ...)` | Returns a `PFrame(vectors, modes, residual, mad, block)` with Xvid-style `MODE_SKIP`, `MODE_INTER`, and neighbour-clustered `MODE_INTRA` macroblock classification |
+| `codec.decode_pframe(picture, pframe, current_b, ...)` | Applies one `PFrame` to `picture` (motion warp + quantized residual + optional INTRA block replacement) |
+| `codec.identity_coords(size)`, `codec.advect_coords(coords, field, mask=None)`, `codec.sample_coords(image, coords)` | Advects an `(H, W, 2)` coordinate map and hole mask so the source frame is sampled once per output frame with zero accumulated blur |
+| `codec.cluster_grow(mask, scores, target_fraction)` | Organically grows an INTRA block mask from existing block borders and high-error scores |
+
 ## Finished effects
 
 Keyframe Drop, Motion Bloom, Liquid Melt, Pulse Mosh and Bake Smear are finished. Each member's file only has
@@ -212,8 +227,8 @@ to follow this API; the parameters below are what the Inspector shows today.
 | Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 8 (1–32), `heal` float 0.02 (0–1) |
 | Motion Bloom | `motion_bloom` | `gain` float 1.0 (0–4), `residual` float 1.0 (0–2), `emerge` float 1.0 (0–3) |
 | Liquid Melt | `liquid_melt` | `look` pixel / liquid, `direction` right / left, `pixel` int 8 (1–32), `melt` float 2.0 (0–6), `strength` float 1.5 (0–3), `inertia` float 0.6 (0–0.95), `imprint` float 0.6 (0–1), `settle` float 0.35 (0–1), `block` int 16 (8–64) |
-| Pulse Mosh | `pulse_mosh` | `period` int 6 (2–30), `gain` float 1.5 (0–4), `refresh` float 1.0 (0.2–2), `block` int 16 (8–48) |
-| Bake Smear | `bake_smear` | `gain` float 1.2 (0–4), `bleed` float 0.6 (0–1), `residual` float 1.0 (0–2), `pull` float 1.0 (0–3) |
+| Pulse Mosh | `pulse_mosh` | `period` int 6 (2–30), `gain` float 1.4 (0–4), `residual` float 0.9 (0–2), `block` int 16 (8–32), `exit` snap / intra |
+| Bake Smear | `bake_smear` | `gain` float 1.3 (0–4), `pull` float 1.0 (0–3), `residual` float 0.9 (0–2), `exit` intra / snap |
 
 Keyframe Drop works best with the `after` alignment and a clip B with clear motion.
 When a new effect works, remove `(draft)` from its `info.name`.

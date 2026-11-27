@@ -9,7 +9,7 @@ import pytest
 
 from helpers import ArraySource, moving_clip
 from moshflow.api import TransitionContext
-from moshflow.toolkit import color, frames, motion, warp
+from moshflow.toolkit import codec, color, frames, motion, warp
 
 
 def call(function, *args, **kwargs):
@@ -177,3 +177,81 @@ def test_warp_keeps_colour_channels_and_the_input():
     out = call(warp.warp, image, field)
     assert out.shape == (4, 5, 3)
     assert np.array_equal(out[1:], image[:-1]) and np.array_equal(out[0], image[0])
+
+
+# --- codec ---------------------------------------------------------------------
+
+def test_hierarchical_estimate_recovers_large_shift():
+    yy, xx = np.mgrid[0:128, 0:160].astype(np.float32)
+    ref = (
+        128.0
+        + 60.0 * np.sin(xx * 0.13 + yy * 0.07)
+        + 45.0 * np.cos(xx * 0.05 - yy * 0.17)
+        + 20.0 * np.sin(xx * 0.31)
+    ).astype(np.float32)
+    cur = np.roll(ref, (10, 14), axis=(0, 1))
+    vectors = codec.estimate_hierarchical(ref, cur, block=16, search=24)
+    # Interior blocks (away from the wrapped border) should recover (-14, -10).
+    interior = vectors[2:-1, 2:-1]
+    assert np.all(interior[..., 0] == -14)
+    assert np.all(interior[..., 1] == -10)
+
+
+def test_median_vectors_removes_single_spike_and_keeps_step():
+    grid = np.zeros((5, 6, 2), np.int32)
+    grid[:, 3:, 0] = 10
+    grid[2, 1, 0] = 25  # isolated outlier spike on the left half
+    cleaned = codec.median_vectors(grid)
+    assert cleaned[2, 1, 0] == 0
+    assert np.all(cleaned[:, :3, 0] == 0)
+    assert np.all(cleaned[:, 3:, 0] == 10)
+
+
+def test_quantize_residual_zeroes_deadzone_and_suppresses_chroma():
+    err = np.zeros((4, 4, 3), np.float32)
+    err[0, 0] = [10.0, 10.0, 10.0]         # luma 10 < 2.5 * 12 = 30 -> dead zone
+    err[1, 1] = [60.0, 60.0, 60.0]         # pure luma 60 -> survives
+    err[2, 2] = [80.0, -20.0, 0.0]         # strong chroma, near-zero luma
+    q = codec.quantize_residual(err, quant=12.0, chroma_scale=0.1)
+    assert np.all(q[0, 0] == 0.0)
+    assert np.all(q[1, 1] > 40.0)
+    # Chroma-only residual should be strongly suppressed relative to raw error.
+    assert np.abs(q[2, 2]).max() < 15.0
+
+
+def test_analyze_pframe_classifies_skip_inter_and_intra():
+    rng = np.random.default_rng(3)
+    ref = rng.integers(30, 220, (64, 64, 3), dtype=np.uint8)
+    cur = ref.copy()
+    # Replace bottom-right 32x32 with a brand-new flat bright patch (not in ref -> INTRA).
+    cur[32:, 32:] = np.uint8([250, 250, 250])
+    pf = codec.analyze_pframe(ref, cur, block=16, search=8, quant=12.0, intra_thresh=18.0)
+    assert np.all(pf.modes[:2, :2] == codec.MODE_SKIP)
+    assert np.any(pf.modes[2:, 2:] == codec.MODE_INTRA)
+    # SKIP and INTRA blocks must carry zero residual.
+    assert not pf.residual[:32, :32].any()
+
+
+def test_advect_and_sample_coords_tracks_holes_without_blur():
+    img = np.arange(8 * 10 * 3, dtype=np.uint8).reshape(8, 10, 3)
+    coords = codec.identity_coords((10, 8))
+    field = np.zeros((8, 10, 2), np.float32)
+    field[..., 0] = -2.0  # read 2 pixels left -> left 2 columns step out of bounds
+    coords, valid = codec.advect_coords(coords, field)
+    assert not valid[:, :2].any()
+    assert valid[:, 2:].all()
+    sampled = codec.sample_coords(img, coords, sampling="nearest")
+    assert np.array_equal(sampled[:, 2:], img[:, :-2])
+
+
+def test_cluster_grow_expands_from_existing_seed():
+    mask = np.zeros((4, 4), bool)
+    mask[1, 1] = True
+    scores = np.zeros((4, 4), np.float32)
+    grown = codec.cluster_grow(mask, scores, target_fraction=0.3)
+    assert grown[1, 1]
+    # Newly activated blocks should touch (1, 1) since scores are uniform.
+    neighbours = [(0, 1), (2, 1), (1, 0), (1, 2)]
+    assert any(grown[r, c] for r, c in neighbours)
+    assert not grown[3, 3]
+
