@@ -35,7 +35,7 @@ the video files, the encoder or the project file.
 | `moshflow/toolkit/warp.py` | `warp` | Yuhyeon Cha |
 | `moshflow/toolkit/refresh.py` | `thresholds`, `switched`, `block_mean`, `to_pixels` | Yuhyeon Cha |
 | `moshflow/effects/hard_cut.py`, `crossfade.py` | Working reference effects | Yuhyeon Cha |
-| `moshflow/effects/keyframe_drop.py`, `motion_bloom.py`, `liquid_melt.py` | Optional sample skeletons | Anyone |
+| `moshflow/effects/keyframe_drop.py`, `motion_bloom.py`, `liquid_melt.py` | Finished effects, one per member | Casper Bach, Nicolai Hansen, Viktor Tost |
 | `moshflow/effects/<your_effect>.py` | Your own effect | Its author |
 
 ## Frames
@@ -225,21 +225,37 @@ Speed: on a 1280 × 720 frame, `estimate` with block 16 and search 8 takes about
 on every second pixel (`luma[::2, ::2]`, with half the block and search) and double
 the vectors.
 
-## Sample skeletons (optional)
+### Codec-style P-frame and coordinate advection (codec.py)
 
-Each member writes the effect they want; it only has to follow this API. The three
-files below are optional starting points: each registers an effect with example
-parameters, so it appears in the Inspector and passes the contract test. `render`
-is a plain cut, and the `TODO` comments give one possible design from the Survey &
-Plan, Section 13. Finish one, change it, or delete the file.
+Shared building blocks for datamosh transitions that preserve clip A's sharp colours
+without alpha cross-fading or repeated bilinear blur:
+
+| Function | Does |
+| --- | --- |
+| `codec.estimate_hierarchical(ref, cur, block=16, search=24, smooth=True)` | Coarse-to-fine 3-level pyramid block matching (2x2 box downsample + local refinement + 5-neighbour sorting-network median filter) covering up to `+-search` pixels |
+| `codec.median_vectors(vectors)` | 5-neighbour cross median filter on `(rows, cols, 2)` block vectors via pairwise min/max compare-exchange |
+| `codec.quantize_residual(error, quant=14.0, chroma_scale=0.25)` | H.263-style inter dead-zone quantization (`2.5 * quant` dead zone) with stronger chroma attenuation so brightness contours etch into A's colour palette |
+| `codec.analyze_pframe(ref_bgr, cur_bgr, ...)` | Returns a `PFrame(vectors, modes, residual, mad, block)` with Xvid-style `MODE_SKIP`, `MODE_INTER`, and neighbour-clustered `MODE_INTRA` macroblock classification |
+| `codec.decode_pframe(picture, pframe, current_b, ...)` | Applies one `PFrame` to `picture` (motion warp + quantized residual + optional INTRA block replacement) |
+| `codec.identity_coords(size)`, `codec.advect_coords(coords, field, mask=None)`, `codec.sample_coords(image, coords)` | Advects an `(H, W, 2)` coordinate map and hole mask so the source frame is sampled once per output frame with zero accumulated blur |
+| `codec.cluster_grow(mask, scores, target_fraction)` | Organically grows an INTRA block mask from existing block borders and high-error scores |
+| `codec.frames_equal(first, second, threshold=0.5)` | True when two frames are effectively identical (repeated frame) |
+
+## Finished effects
+
+Keyframe Drop, Motion Bloom, Liquid Melt, Pulse Mosh and Bake Smear are finished. Each member's file only has
+to follow this API; the parameters below are what the Inspector shows today.
 
 | Effect | id | Parameters |
 | --- | --- | --- |
-| Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 8 (1–32), `heal` float 0.05 (0–1) |
-| Motion Bloom | `motion_bloom` | `source` A / B, `gain` float 1.0 (0–4), `decay` float 0.02 (0–0.5), `release` cut / fade |
-| Liquid Melt | `liquid_melt` | `block` int 16 (8–64), `strength` float 1.0 (0–3), `smoothness` float 0.5 (0–1), `fade` float 0.3 (0–1) |
+| Keyframe Drop | `keyframe_drop` | `block` int 16 (4–64), `search` int 16 (1–32), `heal` float 0.0 (0–1) |
+| Motion Bloom | `motion_bloom` | `gain` float 1.0 (0–4), `residual` float 1.0 (0–2), `emerge` float 1.0 (0–3) |
+| Liquid Melt | `liquid_melt` | `look` pixel / liquid, `direction` right / left, `pixel` int 8 (1–32), `melt` float 2.0 (0–6), `strength` float 1.5 (0–3), `inertia` float 0.6 (0–0.95), `imprint` float 0.6 (0–1), `settle` float 0.35 (0–1), `block` int 16 (8–64) |
+| Pulse Mosh | `pulse_mosh` | `period` int 6 (2–30), `gain` float 1.4 (0–4), `residual` float 0.9 (0–2), `block` int 16 (8–32), `exit` snap / intra |
+| Bake Smear | `bake_smear` | `gain` float 1.3 (0–4), `pull` float 1.0 (0–3), `residual` float 0.9 (0–2), `exit` intra / snap |
 
-When an effect works, remove `(draft)` from its `info.name`.
+Keyframe Drop works best with the `after` alignment and a clip B with clear motion.
+When a new effect works, remove `(draft)` from its `info.name`.
 
 ## Library rule
 

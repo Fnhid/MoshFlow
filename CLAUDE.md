@@ -68,9 +68,8 @@ declare every tunable value in `param_specs()`. No file I/O, UI calls or global 
 Never blend clip A and clip B with a weight (`P + h * (B - P)` looks like a crossfade, not a
 datamosh): a block shows one picture or the other. Use `toolkit/refresh.py` to switch blocks to B.
 
-Keyframe Drop, Motion Bloom and Liquid Melt are optional sample skeletons. A member
-may finish one, change it, or delete it and write something else; nobody has to
-implement them. Once an effect id has been used in a saved project, keep it stable.
+Keyframe Drop, Motion Bloom and Liquid Melt are finished effects. A member
+may still change one or write another. Once an effect id has been used in a saved project, keep it stable.
 The shared helpers work: `toolkit/motion.py` (`estimate`, `to_field`,
 `smooth_field`) and `toolkit/warp.py` (`warp`). Do not change their signatures or
 the vector convention, because other effects may depend on them. When an effect
@@ -132,7 +131,7 @@ just describe the task.
 
 | Skill | Use it to |
 | --- | --- |
-| `/new-effect` | Write your own effect, finish a sample skeleton, or fix a contract-test failure |
+| `/new-effect` | Write your own effect, finish an effect, or fix a contract-test failure |
 | `/check-library-rule` | Check a change against the course library rule before a commit or pull request |
 | `/run-moshflow` | Run the app without a screen, take screenshots, export a transition and look at its frames |
 | `/humanizer` | Make README, docs, reports or pull request text read like a person wrote it |

@@ -77,8 +77,8 @@ class DctCrush(TransitionEffect):
         return [
             ChoiceParam("timing", "B timing", "at the cut", ("at the cut", "stretch")),
             IntParam("block", "Block size", 8, 4, 32),
-            FloatParam("sensitivity", "Texture refresh", 0.12, 0.0, 3.0),
-            FloatParam("colour", "Colour refresh", 0.06, 0.0, 3.0),
+            FloatParam("sensitivity", "Texture refresh", 0.06, 0.0, 3.0),
+            FloatParam("colour", "Colour refresh", 0.03, 0.0, 3.0),
             FloatParam("crush", "Crush", 6.0, 0.0, 30.0),
             FloatParam("chroma", "Colour crush", 2.0, 1.0, 8.0),
             FloatParam("heal", "Refresh", 1.0, 0.05, 1.0),

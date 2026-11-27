@@ -118,7 +118,7 @@ class Takeover:
     block adds up B's residual there: what B's motion does not explain, as a codec
     measures it (a camera pan is motion, not change, so it does not count); a block
     becomes B, whole, once that total, plus a small
-    share that grows with time (progress^2: slow at first, then faster), reaches
+    share that grows with time (progress^3: very slow at first, then faster), reaches
     the block's threshold. So B overwrites the old picture first where it moves,
     and still areas keep the old picture longest, as in a real decoder. At the last
     frame of the transition every block is B.
@@ -139,7 +139,7 @@ class Takeover:
         blocks B has taken so far. `progress` runs from 0 to 1 over the moshed frames."""
         if before is not None and now is not None:
             self.change += block_mean(_residual(before, now), self.block)
-        share = self.change / self.full + min(max(progress, 0.0), 1.0) ** 2
+        share = self.change / self.full + min(max(progress, 0.0), 1.0) ** 3
         return to_pixels(share >= self.limits, self.block, self.size)
 
 

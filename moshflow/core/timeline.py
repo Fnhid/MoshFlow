@@ -5,7 +5,6 @@ frames of clip B, depending on its alignment:
   before -> n frames of A,  center -> n/2 of A + n/2 of B,  after -> n frames of B.
 """
 
-import os
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -67,16 +66,24 @@ def resolve(project: Project, sources: Sequence[FrameSource]) -> RenderGraph:
         raise ValueError("need exactly one FrameSource per clip")
 
     fps = sources[0].fps
-    splits = [split_window(int(round(t.duration * fps)), t.alignment) for t in project.transitions]
+    splits = [list(split_window(int(round(t.duration * fps)), t.alignment)) for t in project.transitions]
+
+    # A clip shorter than its transitions need is used whole: the transition on each
+    # side gets its share of the clip, in proportion, instead of failing.
+    for i, source in enumerate(sources):
+        incoming = splits[i - 1][1] if i > 0 else 0
+        outgoing = splits[i][0] if i < len(splits) else 0
+        if incoming + outgoing > len(source):
+            incoming = len(source) * incoming // (incoming + outgoing)
+            if i > 0:
+                splits[i - 1][1] = incoming
+            if i < len(splits):
+                splits[i][0] = len(source) - incoming
 
     ranges = []
     for i, source in enumerate(sources):
         start = splits[i - 1][1] if i > 0 else 0
         stop = len(source) - (splits[i][0] if i < len(splits) else 0)
-        if stop < start:
-            name = os.path.basename(project.clips[i].path)
-            raise TimelineError(f"clip {i + 1} ({name}) has {len(source)} frames but its transitions "
-                                f"need {start + len(source) - stop}; shorten the transitions")
         ranges.append(range(start, stop))
 
     nodes: list[ClipNode | TransitionNode] = []
