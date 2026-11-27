@@ -33,7 +33,7 @@ the video files, the encoder or the project file.
 | `moshflow/toolkit/frames.py` | `window_frames`, `last_clean_a` | Yuhyeon Cha |
 | `moshflow/toolkit/motion.py` | `estimate`, `to_field`, `smooth_field` | Yuhyeon Cha |
 | `moshflow/toolkit/warp.py` | `warp` | Yuhyeon Cha |
-| `moshflow/toolkit/refresh.py` | `thresholds`, `switched`, `block_mean`, `to_pixels` | Yuhyeon Cha |
+| `moshflow/toolkit/refresh.py` | `thresholds`, `switched`, `block_mean`, `to_pixels`, `block_size`, `incoming_motion`, `Takeover` | Yuhyeon Cha |
 | `moshflow/effects/hard_cut.py`, `crossfade.py` | Working reference effects | Yuhyeon Cha |
 | `moshflow/effects/keyframe_drop.py`, `motion_bloom.py`, `liquid_melt.py` | Finished effects, one per member | Casper Bach, Nicolai Hansen, Viktor Tost |
 | `moshflow/effects/<your_effect>.py` | Your own effect | Its author |
@@ -55,7 +55,8 @@ Never do pixel maths in `uint8`: `50 - 80` wraps around to `226`.
 
 ## FrameSource
 
-One clip, already conformed to the project size and frame rate.
+One clip, already conformed to the project size and frame rate. A clip with another
+aspect ratio is scaled to fit and centred on black bars, never stretched.
 
 | Member | Meaning |
 | --- | --- |
@@ -214,12 +215,14 @@ other.
 | `refresh.block_mean(values, block)` | Mean of an `(H, W)` map per block |
 | `refresh.to_pixels(blocks, block, size)` | `(H, W, 1)` from a `(rows, cols)` bool map |
 | `refresh.block_size(size)` | The switching block size: 8 at 720p, scaled with the frame height |
-| `refresh.Takeover(ctx, block)`, `.step(b_before, b_now, progress)` | Blocks clip B has taken so far: each block adds up B's motion-compensated residual (a camera pan does not count) plus a time share growing as progress³, and switches at its threshold; all are B at the end |
+| `refresh.Takeover(ctx, block)`, `.step(b_before, b_now, progress)` | Blocks clip B has taken so far: each block adds up B's motion-compensated residual (a camera pan does not count) (capped per frame, so a scene cut in B does not take everything at once), the total seeps one block outwards per frame so B fills the background from where it moves, and a block switches at its threshold. Nothing switches on a timer; the last frame (progress 1) is all B |
 
 ```python
-limits = refresh.thresholds(ctx.size, 16, ctx.seed)
-taken = refresh.switched(share, 16, limits, ctx.size)
-picture = np.where(taken, b_frame, picture)
+block = refresh.block_size(ctx.size)                  # 8 at 720p
+takeover = refresh.Takeover(ctx, block)
+...
+taken = takeover.step(b_before, b_now, k / (b_frames - 1))
+picture = np.where(taken, b_now, picture)
 ```
 
 Speed: on a 1280 × 720 frame, `estimate` with block 16 and search 8 takes about

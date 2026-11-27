@@ -11,7 +11,7 @@ from moshflow.api import BoolParam, ChoiceParam, FloatParam, IntParam, validate_
 from moshflow.app.store import project_from_dict, project_to_dict
 from moshflow.core.discovery import discover_effects
 from moshflow.core.project import Clip, Project, Transition
-from moshflow.core.timeline import ClipNode, TimelineError, TransitionNode, resolve
+from moshflow.core.timeline import ClipNode, TransitionNode, resolve
 from moshflow.toolkit import color, resize
 
 SPECS = [IntParam("n", "N", 4, 1, 8), FloatParam("x", "X", 0.5, 0.0, 1.0),

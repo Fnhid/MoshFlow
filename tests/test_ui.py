@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QSpinBox

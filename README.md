@@ -33,7 +33,9 @@ On Windows, use `.venv\Scripts\` instead of `.venv/bin/`.
    left or right edge to trim it, or play the clip in the preview and press **I** / **O**
    (or **Set start** / **Set end**) to start or end it at the frame shown.
 3. Click a transition chip between two clips and choose its effect, duration
-   and parameters in the Inspector.
+   and parameters in the Inspector. A new transition lasts 3 s and starts at the
+   cut, so the first clip plays to its end. Clips with another aspect ratio are
+   fitted on black bars.
 4. Press **Export**. The video is written in the background.
 
 **Edit > Undo** (Ctrl+Z) and **Redo** (Ctrl+Shift+Z) work for every change to the
@@ -57,10 +59,12 @@ See [`CLAUDE.md`](CLAUDE.md), "Git", for more.
 The full contract is in [`docs/API.md`](docs/API.md). Team members using Claude Code
 should also read [`CLAUDE.md`](CLAUDE.md).
 
-Each member writes the effect they want; it only has to follow the API. Keyframe Drop,
-Motion Bloom and Liquid Melt are finished and appear in the Inspector. The shared helpers, block matching in
-`toolkit/motion.py` and motion compensation in `toolkit/warp.py`, work and are
-checked by `tests/test_toolkit.py`.
+Each member writes the effect they want; it only has to follow the API. Ten effects
+are in the Inspector: Hard Cut, Crossfade and eight datamosh effects (Keyframe Drop,
+Motion Bloom, Liquid Melt, Vector Swap, P-frame Pulse, DCT Crush, Pulse Mosh, Bake
+Smear). The shared helpers are block matching in `toolkit/motion.py`, motion
+compensation in `toolkit/warp.py`, codec-style P-frames in `toolkit/codec.py` and
+block switching in `toolkit/refresh.py`; `tests/test_toolkit.py` checks them.
 
 An effect is one file in `moshflow/effects/`. The program finds it automatically, and
 the Inspector builds its controls from `param_specs()`.
