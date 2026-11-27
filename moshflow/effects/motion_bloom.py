@@ -28,8 +28,9 @@ The transition, frame by frame:
   Where a P-frame fails (B moves faster than the search reaches, its residual is
   large) the whole block becomes B's real block, as an encoder sends a fresh
   (intra) block there.
-- Refresh (the last quarter, times `emerge`): the remaining blocks switch to B's
-  real frame, where B moves first and still areas last; the last frame is B.
+- Refresh (the last tenth, times `emerge`): the remaining blocks switch to B's
+  real frame within a few frames, like B's next keyframe arriving, where B moves
+  first; the last frame is B.
 - A block shows A's decoded picture or B's frame, never a mix of both.
 - With no B window (alignment "before"), the last third of A's window is moshed
   with B's opening motion and refreshed into B's first frame.
@@ -50,9 +51,10 @@ BLOCK = 16           # block size and search range of the motion, at full size
 SEARCH = 8
 CONFIDENCE = 0.7     # keep a block's vector only if it cuts the block's error to below 70 %
 LOOK_AHEAD = 30      # B frames searched for its opening motions
+LOOK_STEP = 3        # ... every third frame pair, which is enough to find the strongest
 OPENING_COUNT = 1    # the bloom repeats B's single strongest opening motion
 BLOOM_SHARE = 0.5    # share of the moshed frames that repeat that P-frame
-REFRESH_SHARE = 0.25 # share of the moshed frames (times `emerge`) in which blocks switch to B
+REFRESH_SHARE = 0.1  # share of the moshed frames (times `emerge`) in which blocks switch to B
 INTRA_LEVEL = 40.0   # mean |residual| (grey levels) above which a block is sent fresh
 NO_B_PART = 1 / 3    # with no B window, the share of A's window that is moshed
 
@@ -79,7 +81,8 @@ class MotionBloom(TransitionEffect):
         moshed = ctx.length - start                      # frames after the mosh starts
         bloom_end = round(BLOOM_SHARE * moshed)
         refresh_from = moshed - max(1, round(min(REFRESH_SHARE * p["emerge"], 1.0) * moshed))
-        limits = refresh.thresholds(ctx.size, BLOCK, ctx.seed, refresh.incoming_motion(ctx, BLOCK))
+        fine = refresh.block_size(ctx.size)              # B arrives in 8 x 8 blocks at 720p
+        limits = refresh.thresholds(ctx.size, fine, ctx.seed, refresh.incoming_motion(ctx, fine))
         taken = np.zeros((ctx.size[1], ctx.size[0], 1), bool)
         bloom = None
         picture = None
@@ -106,14 +109,14 @@ class MotionBloom(TransitionEffect):
                 # B's own P-frame at B's real speed: motion, then residual.
                 field, error = _p_frame(b, index - 1, index, ctx.size)
                 picture = warp.warp(picture, p["gain"] * field, "bilinear") + p["residual"] * error
-                fresh = refresh.block_mean(np.abs(color.bgr_to_y(error)), BLOCK) > INTRA_LEVEL
-                taken |= refresh.to_pixels(fresh, BLOCK, ctx.size)
+                fresh = refresh.block_mean(np.abs(color.bgr_to_y(error)), fine) > INTRA_LEVEL
+                taken |= refresh.to_pixels(fresh, fine, ctx.size)
             picture = np.clip(picture, 0.0, 255.0)
 
             # Refresh: the remaining blocks switch to B, where B moves first.
             if m >= refresh_from:
                 share = (m + 1 - refresh_from) / (moshed - refresh_from)
-                taken |= refresh.switched(share, BLOCK, limits, ctx.size)
+                taken |= refresh.switched(share, fine, limits, ctx.size)
             picture = np.where(taken, target, picture)
             out = target if i == ctx.length - 1 else picture
             progress.report(i + 1, ctx.length)
@@ -140,7 +143,7 @@ def _opening_motions(clip, start: int, size: tuple[int, int]) -> list[np.ndarray
     The OPENING_COUNT pairs with the most local motion are kept, in time order.
     """
     found = []
-    for first in range(start, min(start + LOOK_AHEAD, len(clip) - 1)):
+    for first in range(start, min(start + LOOK_AHEAD, len(clip) - 1), LOOK_STEP):
         if _same(clip.frame(first), clip.frame(first + 1)):
             continue
         field = _field(clip, first, first + 1, size)

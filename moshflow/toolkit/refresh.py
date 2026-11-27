@@ -7,9 +7,10 @@ with a weight (out = P + h (B - P)) looks like a crossfade instead.
 
 Use `thresholds` once per transition and `switched` every frame:
 
-    limits = refresh.thresholds(ctx.size, 16, ctx.seed)
+    block = refresh.block_size(ctx.size)                     # 8 at 720p
+    limits = refresh.thresholds(ctx.size, block, ctx.seed, refresh.incoming_motion(ctx, block))
     ...
-    taken = refresh.switched(share, 16, limits, ctx.size)   # share: 0..1 per pixel
+    taken = refresh.switched(share, block, limits, ctx.size)  # share: 0..1 per pixel
     picture = np.where(taken, new_frame, picture)
 
 A block switches when its average share reaches its own threshold, so blocks switch
@@ -23,7 +24,8 @@ import numpy as np
 from moshflow.toolkit import color
 
 LOW, HIGH = 0.15, 0.85   # thresholds lie between these
-JITTER = 0.25            # share of randomness in the order when a priority is given
+JITTER = 0.1             # share of randomness in the order when a priority is given
+BLOCK_AT_720P = 8        # switching block size at 720p; scaled with the frame height
 
 
 def thresholds(size: tuple[int, int], block: int, seed: int, priority: np.ndarray | None = None) -> np.ndarray:
@@ -40,11 +42,27 @@ def thresholds(size: tuple[int, int], block: int, seed: int, priority: np.ndarra
     if priority is None:
         order = noise
     else:
-        flat = np.asarray(priority, np.float64).reshape(-1)
+        # Smoothed over the neighbouring blocks, so B spreads out from where it moves
+        # in connected patches instead of single blocks scattered over still areas.
+        flat = _spread(np.asarray(priority, np.float64)).reshape(-1)
         ranks = np.empty(flat.size)
         ranks[np.argsort(-flat, kind="stable")] = np.arange(flat.size)
         order = (1.0 - JITTER) * (ranks / max(flat.size - 1, 1)).reshape(rows, cols) + JITTER * noise
     return (LOW + (HIGH - LOW) * order).astype(np.float32)
+
+
+def block_size(size: tuple[int, int]) -> int:
+    """The switching block size for a frame size: 8 pixels at 720p, 16 at 1440p."""
+    return max(4, int(round(BLOCK_AT_720P * size[1] / 720)))
+
+
+def _spread(grid: np.ndarray, passes: int = 2) -> np.ndarray:
+    """Averages every block with its 8 neighbours, `passes` times (edges repeated)."""
+    for _ in range(passes):
+        padded = np.pad(grid, 1, mode="edge")
+        rows, cols = grid.shape
+        grid = sum(padded[r:r + rows, c:c + cols] for r in range(3) for c in range(3)) / 9.0
+    return grid
 
 
 def block_mean(values: np.ndarray, block: int) -> np.ndarray:

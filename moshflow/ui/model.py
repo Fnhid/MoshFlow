@@ -70,10 +70,11 @@ class ProjectModel(QObject):
     def move_clip(self, src: int, dst: int) -> None:
         self._edit("Move clip", self.project.with_clip_moved(src, dst), (CLIP, dst))
 
-    def set_clip(self, index: int, clip: Clip, what: str) -> None:
-        """Changes one clip. Repeated changes of the same `what` become one undo step."""
+    def set_clip(self, index: int, clip: Clip, what: str, step: object = None) -> None:
+        """Changes one clip. Repeated changes of the same `what` (and `step`) become one
+        undo step; give each mouse drag its own `step` so two drags stay two steps."""
         self._edit(f"Change {what}", self.project.with_clip_replaced(index, clip), self.selection,
-                   merge_key=(CLIP, index, what))
+                   merge_key=(CLIP, index, what, step))
 
     def set_transition(self, index: int, transition: Transition, what: str) -> None:
         """Changes one transition. Repeated changes of the same `what` become one undo step."""

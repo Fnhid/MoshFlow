@@ -340,3 +340,53 @@ def test_clip_end_shows_the_clip_length_by_default(window):
     assert window.model.project.clips[0].end == pytest.approx(2.0)
     end_box.setValue(end_box.maximum())                   # back to the end: plays to the end again
     assert window.model.project.clips[0].end is None
+
+
+def drag(window, start, end):
+    viewport = window.timeline.viewport()
+    QTest.mousePress(viewport, Qt.LeftButton, Qt.NoModifier, start)
+    QTest.mouseMove(viewport, end)
+    QApplication.processEvents()
+    QTest.mouseRelease(viewport, Qt.LeftButton, Qt.NoModifier, end)
+
+
+def test_dragging_a_clip_edge_trims_it(window):
+    window.model.add_clip(window.paths[0])                 # 3 s
+    window.model.add_clip(window.paths[1])
+    timeline = window.timeline
+    rect = timeline._clip_rects[0]
+    pps = timeline._pixels_per_second
+    y = rect.center().y()
+    # Right edge 1 s to the left: the clip ends at 2 s.
+    drag(window, timeline.mapFromScene(QPointF(rect.right(), y)), timeline.mapFromScene(QPointF(rect.right() - pps, y)))
+    assert window.model.project.clips[0].end == pytest.approx(2.0, abs=0.05)
+    # Left edge 0.5 s to the right: the clip starts at 0.5 s.
+    rect = timeline._clip_rects[0]
+    drag(window, timeline.mapFromScene(QPointF(rect.left(), y)), timeline.mapFromScene(QPointF(rect.left() + pps / 2, y)))
+    assert window.model.project.clips[0].start == pytest.approx(0.5, abs=0.05)
+    assert [os.path.basename(c.path) for c in window.model.project.clips] == ["a.mp4", "b.mp4"]   # not reordered
+    window.model.undo_stack.undo()                         # each drag is one undo step
+    assert window.model.project.clips[0].start == 0.0
+    assert window.model.project.clips[0].end == pytest.approx(2.0, abs=0.05)
+
+
+def test_set_start_and_end_at_the_frame_shown(window):
+    window.model.add_clip(window.paths[0])                 # 30 frames at 10 fps
+    window.model.select(CLIP, 0)
+    preview = window.preview
+    preview.scrubber.setValue(5)                           # 0.5 s
+    preview.set_start_here()
+    assert window.model.project.clips[0].start == pytest.approx(0.5)
+    preview.scrubber.setValue(10)                          # 1.0 s after the new start: 1.5 s in the file
+    preview.set_end_here()
+    assert window.model.project.clips[0].end == pytest.approx(1.6)   # the frame shown stays in
+
+
+def test_i_and_o_keys_trim_the_selected_clip(window):
+    window.model.add_clip(window.paths[0])
+    window.model.select(CLIP, 0)
+    window.preview.scrubber.setValue(5)
+    edit = {a.text().replace("&", ""): a for a in window.menuBar().actions()}["Edit"].menu()
+    start = next(a for a in edit.actions() if a.shortcut() == QKeySequence("I"))
+    start.trigger()
+    assert window.model.project.clips[0].start == pytest.approx(0.5)

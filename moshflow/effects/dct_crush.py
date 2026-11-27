@@ -80,7 +80,7 @@ class DctCrush(TransitionEffect):
             FloatParam("colour", "Colour refresh", 0.12, 0.0, 3.0),
             FloatParam("crush", "Crush", 6.0, 0.0, 30.0),
             FloatParam("chroma", "Colour crush", 2.0, 1.0, 8.0),
-            FloatParam("heal", "Refresh", 0.3, 0.05, 0.6),
+            FloatParam("heal", "Refresh", 0.1, 0.05, 0.6),
             IntParam("search", "Search range", 8, 2, 32),
         ]
 

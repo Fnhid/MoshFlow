@@ -36,8 +36,10 @@ def bilinear(frame: np.ndarray, size: tuple[int, int]) -> np.ndarray:
     wx = (xs - x0)[None, :, None]
     wy = (ys - y0)[:, None, None]
 
-    img = frame.astype(np.float32)
-    top = img[y0[:, None], x0[None, :]] * (1 - wx) + img[y0[:, None], x1[None, :]] * wx
-    bottom = img[y1[:, None], x0[None, :]] * (1 - wx) + img[y1[:, None], x1[None, :]] * wx
+    # Pick the four neighbours first and convert only them, not the whole source
+    # frame: the result is the same, and shrinking a large frame is much faster.
+    rows0, rows1 = frame[y0], frame[y1]
+    top = rows0[:, x0].astype(np.float32) * (1 - wx) + rows0[:, x1].astype(np.float32) * wx
+    bottom = rows1[:, x0].astype(np.float32) * (1 - wx) + rows1[:, x1].astype(np.float32) * wx
     out = top * (1 - wy) + bottom * wy
     return (out + 0.5).astype(np.uint8)
