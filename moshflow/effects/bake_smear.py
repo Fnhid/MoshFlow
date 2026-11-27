@@ -4,16 +4,17 @@ Combines three pixel-domain datamosh mechanisms with zero alpha cross-fading:
 
 1. Coordinate-map advection (transflow style): instead of resampling pixels every
    frame (which blurs A into mud), we advect an (H, W, 2) coordinate map by B's
-   wide-range hierarchical motion plus a radial pull towards B's motion centre c.
-   Each output frame samples A's last clean frame once at the advected coordinates,
-   so A's exact colours and sharpness survive even under heavy stretching.
+   wide-range hierarchical motion plus a localized radial gravity well centred on
+   B's motion focus c: v_pull(p) ~ (p - c) / (1 + 0.5 r^2 / sigma^2)^2. Because the
+   weight decays towards zero at the frame border, A never shrinks as a rigid
+   rectangle; instead, A stays full-frame while stretching organically into c.
 2. Dead-zone luma etching: B's prediction residual is dead-zone quantized with almost
    no chroma (chroma_scale = 0.08) and accumulated in a separate buffer advected with
    the same flow. B's moving subject etches its brightness contours straight into A's
    colour palette.
-3. Hole & INTRA emergence (Careaga/Aksoy + Xvid): wherever suction/motion uncovers
-   out-of-bounds holes or B's prediction fails (INTRA macroblocks), B's real pixels
-   break through as crisp patches—never a geometric wipe or opacity fade.
+3. Clustered INTRA emergence (Xvid style): where B's prediction fails (INTRA
+   macroblocks) and organically outward from B's motion focus, B's real pixels tear
+   through as crisp 16x16 macroblock clusters—never a rectangular wipe or alpha fade.
 """
 
 import numpy as np
@@ -24,7 +25,8 @@ from moshflow.toolkit import codec, color, frames, motion, warp
 BLOCK = 16
 SEARCH = 24
 FOCUS_LOOK = 20
-PULL_STEP = 0.045
+PULL_STEP = 0.095
+WELL_SIGMA = 0.36
 QUANT = 14.0
 CHROMA_SCALE = 0.08
 INTRA_THRESH = 20.0
@@ -67,9 +69,14 @@ class BakeSmear(TransitionEffect):
         cx, cy = _focus(b, first_b, ctx.size)
         xs = np.arange(width, dtype=np.float32)[None, :]
         ys = np.arange(height, dtype=np.float32)[:, None]
-        radial = np.empty((height, width, 2), np.float32)
-        radial[..., 0] = xs - cx
-        radial[..., 1] = ys - cy
+        dx = xs - cx
+        dy = ys - cy
+        sigma = max(WELL_SIGMA * min(width, height), 1.0)
+        denom = 1.0 + 0.5 * (dx * dx + dy * dy) / (sigma * sigma)
+        well = (1.0 / (denom * denom)).astype(np.float32)
+        radial_well = np.empty((height, width, 2), np.float32)
+        radial_well[..., 0] = well * dx
+        radial_well[..., 1] = well * dy
         far = float(np.sqrt(max(cx, width - cx) ** 2 + max(cy, height - cy) ** 2)) + 1e-6
 
         rows, cols = -(-height // BLOCK), -(-width // BLOCK)
@@ -82,7 +89,6 @@ class BakeSmear(TransitionEffect):
         jitter = rng.random((rows, cols)).astype(np.float32) * 0.25
 
         coords = codec.identity_coords(ctx.size)
-        valid = np.ones((height, width), bool)
         etch = np.zeros((height, width, 3), np.float32)
         intra_mask = np.zeros((rows, cols), bool)
         activity = np.zeros((rows, cols), np.float32)
@@ -113,25 +119,11 @@ class BakeSmear(TransitionEffect):
             else:
                 step_residual = None
 
-            # Pull A's coordinates toward B's focal point while advecting by B's motion.
-            # When B is in the window, start radial suction and hole-tracking at the cut
-            # so B emerges smoothly from the outer border instead of popping in at once.
-            has_b = a_frames < ctx.length
-            in_b = i >= a_frames
-            if has_b:
-                if in_b:
-                    b_len = ctx.length - a_frames
-                    u = (i - a_frames + 1) / b_len
-                    suction = PULL_STEP * pull * (4.0 * u * (1.0 - 0.65 * u)) * radial
-                else:
-                    suction = 0.0
-            else:
-                suction = PULL_STEP * pull * (4.0 * t * (1.0 - t)) * radial
+            # Localized radial pull into B's focal point: strong around c, near-zero at borders
+            # so A stretches into the focus without shrinking as a rigid rectangle.
+            suction = PULL_STEP * pull * (4.0 * t * (1.0 - t)) * radial_well
             total_field = gain * last_field + suction
-            if has_b and not in_b:
-                coords, _ = codec.advect_coords(coords, total_field, mask=None, sampling="nearest")
-            else:
-                coords, valid = codec.advect_coords(coords, total_field, mask=valid, sampling="nearest")
+            coords, _ = codec.advect_coords(coords, total_field, mask=None, sampling="nearest")
 
             # Advect the luma-etched residual buffer alongside the coordinates.
             etch = warp.warp(etch, total_field, sampling="nearest") * 0.90
@@ -141,22 +133,24 @@ class BakeSmear(TransitionEffect):
             # Sample A once at the advected coordinates (stays crisp; zero repeated blur).
             moshed = np.clip(codec.sample_coords(source_a, coords, sampling="nearest") + etch, 0.0, 255.0)
 
-            # Uncovered holes from suction/motion reveal B's real pixels directly.
+            # In "intra" exit mode, grow clustered INTRA macroblocks outward from B's focus
+            # and high-error moving regions so B tears through organically without any fade.
             if i >= a_frames and exit_style == "intra":
                 b_len = max(ctx.length - a_frames, 1)
                 u = (i - a_frames + 1) / b_len
-                if u > 0.35:
-                    share = ((u - 0.35) / 0.65) ** 1.7
-                    scores = 0.45 * near_focus + 0.55 * np.minimum(activity, 1.0) + jitter
+                if u > 0.30:
+                    share = ((u - 0.30) / 0.70) ** 1.6
+                    scores = 0.55 * near_focus + 0.45 * np.minimum(activity, 1.0) + jitter
                     intra_mask = codec.cluster_grow(intra_mask, scores, share)
                 if i == ctx.length - 1:
                     intra_mask = np.ones((rows, cols), bool)
 
-            show_b = (~valid) if i >= a_frames else np.zeros((height, width), bool)
-            if intra_mask.any():
-                show_b = show_b | codec.expand_blocks(intra_mask, ctx.size, BLOCK)
+            if i >= a_frames and intra_mask.any():
+                show_b = codec.expand_blocks(intra_mask, ctx.size, BLOCK)
+                out = np.where(show_b[..., None], target, moshed)
+            else:
+                out = moshed
 
-            out = np.where(show_b[..., None], target, moshed)
             progress.report(i + 1, ctx.length)
             yield color.to_uint8(out)
 
