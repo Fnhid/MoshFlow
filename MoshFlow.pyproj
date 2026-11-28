@@ -79,17 +79,8 @@
     <Compile Include="moshflow\videoio\opencv_reader.py" />
     <Compile Include="moshflow\videoio\opencv_writer.py" />
     <Compile Include="run.py" />
-    <Compile Include="tests\helpers.py" />
-    <Compile Include="tests\test_compliance.py" />
-    <Compile Include="tests\test_core.py" />
-    <Compile Include="tests\test_effect_contract.py" />
-    <Compile Include="tests\test_render.py" />
-    <Compile Include="tests\test_toolkit.py" />
-    <Compile Include="tests\test_ui.py" />
-    <Compile Include="tools\update_vs_project.py" />
   </ItemGroup>
   <ItemGroup>
-    <Folder Include="docs\" />
     <Folder Include="moshflow\" />
     <Folder Include="moshflow\api\" />
     <Folder Include="moshflow\app\" />
@@ -98,15 +89,10 @@
     <Folder Include="moshflow\toolkit\" />
     <Folder Include="moshflow\ui\" />
     <Folder Include="moshflow\videoio\" />
-    <Folder Include="tests\" />
-    <Folder Include="tools\" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="README.md" />
-    <Content Include="CLAUDE.md" />
-    <Content Include="docs\API.md" />
     <Content Include="requirements.txt" />
-    <Content Include="pytest.ini" />
     <Content Include="run_windows.bat" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
