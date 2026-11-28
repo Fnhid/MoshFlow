@@ -2,3 +2,6 @@
 *.sln text eol=crlf
 *.pyproj text eol=crlf
 *.bat text eol=crlf
+# Keep git files out of the downloaded zip.
+.gitattributes export-ignore
+.gitignore export-ignore
