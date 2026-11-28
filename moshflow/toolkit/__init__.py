@@ -7,3 +7,6 @@ one effect needs are added to this package:
   codec                  hierarchical ME, P-frame modes, dead-zone residual, coordinate advection
 See docs/API.md, "Toolkit".
 """
+
+from __future__ import annotations
+

@@ -1,5 +1,7 @@
 """Renderer: walks a RenderGraph and streams the frames into a FrameSink."""
 
+from __future__ import annotations
+
 from typing import Callable, Sequence
 
 import numpy as np

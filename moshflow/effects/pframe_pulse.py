@@ -37,6 +37,8 @@ better than (0, 0) are dropped, and block vectors are interpolated between block
 centres.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, IntParam, TransitionEffect, register

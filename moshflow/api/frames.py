@@ -1,6 +1,11 @@
 """Frame types and the small interfaces effects and the renderer talk through."""
 
-from typing import Protocol
+from __future__ import annotations
+
+try:
+    from typing import Protocol
+except ImportError:            # Python 3.7: only used as a type hint
+    Protocol = object
 
 import numpy as np
 

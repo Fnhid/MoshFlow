@@ -1,6 +1,8 @@
 """The contract every effect must follow. It runs on every effect automatically,
 so a new effect is covered as soon as its file exists in moshflow/effects/."""
 
+from __future__ import annotations
+
 import numpy as np
 import pytest
 

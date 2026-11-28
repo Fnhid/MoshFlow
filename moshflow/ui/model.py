@@ -4,6 +4,10 @@ Every change to the project goes through the undo stack. A Project is
 immutable, so a history entry only keeps the project from before and after.
 """
 
+from __future__ import annotations
+
+from typing import Optional, Tuple
+
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QUndoCommand, QUndoStack
 
@@ -14,7 +18,7 @@ from moshflow.core.project import Clip, OutputSettings, Project, Transition
 CLIP = "clip"
 TRANSITION = "transition"
 
-Selection = tuple[str, int] | None
+Selection = Optional[Tuple[str, int]]
 
 
 class ProjectModel(QObject):

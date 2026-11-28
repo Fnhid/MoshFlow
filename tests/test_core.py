@@ -1,5 +1,7 @@
 """Parameters, toolkit and timeline."""
 
+from __future__ import annotations
+
 import json
 from dataclasses import FrozenInstanceError
 

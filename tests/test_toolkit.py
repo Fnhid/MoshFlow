@@ -4,6 +4,8 @@ A helper that raises NotImplementedError is skipped rather than failed, so a new
 helper can be added here before it is written.
 """
 
+from __future__ import annotations
+
 import numpy as np
 import pytest
 

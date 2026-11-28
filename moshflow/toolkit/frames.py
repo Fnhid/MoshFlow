@@ -1,5 +1,7 @@
 """Which source frames a transition covers, so every effect walks them the same way."""
 
+from __future__ import annotations
+
 from moshflow.api import Frame, FrameSource, TransitionContext
 
 

@@ -1,5 +1,7 @@
 """MainWindow: puts the views together and handles the File and Edit menus."""
 
+from __future__ import annotations
+
 import sys
 
 from PySide6.QtCore import Qt

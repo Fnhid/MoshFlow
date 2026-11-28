@@ -42,6 +42,8 @@ Vectors that do not explain the motion clearly better than (0, 0) are dropped,
 so flat or blurry areas do not slide at random.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, TransitionEffect, register

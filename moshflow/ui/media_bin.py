@@ -1,5 +1,7 @@
 """MediaBin: the imported videos. Clips are dragged from here onto the timeline."""
 
+from __future__ import annotations
+
 from PySide6.QtCore import QMimeData, QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (

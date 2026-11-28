@@ -1,5 +1,7 @@
 """PreviewPanel: center monitor for inspecting clips and playing transition previews."""
 
+from __future__ import annotations
+
 from dataclasses import replace
 import numpy as np
 from PySide6.QtCore import Qt, QThread, QTimer, Signal

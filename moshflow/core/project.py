@@ -5,6 +5,8 @@ one untouched, so undo can keep earlier versions and a render can run on one
 version while the user keeps editing.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Mapping

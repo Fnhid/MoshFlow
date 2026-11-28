@@ -107,6 +107,7 @@
     <Content Include="docs\API.md" />
     <Content Include="requirements.txt" />
     <Content Include="pytest.ini" />
+    <Content Include="run_windows.bat" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
 </Project>

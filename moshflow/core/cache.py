@@ -1,5 +1,7 @@
 """A small least-recently-used cache for decoded frames."""
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from typing import Callable, Generic, Hashable, TypeVar
 

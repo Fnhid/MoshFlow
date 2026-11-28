@@ -1,5 +1,7 @@
 """Reference effect: linear blend from clip A to clip B."""
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, TransitionEffect, register

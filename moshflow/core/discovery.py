@@ -1,5 +1,7 @@
 """EffectDiscovery: imports every effect module so it can @register itself."""
 
+from __future__ import annotations
+
 import importlib
 import pkgutil
 import traceback

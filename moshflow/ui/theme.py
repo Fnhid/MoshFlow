@@ -1,5 +1,7 @@
 """Visual theme constants and Qt stylesheet for MoshFlow."""
 
+from __future__ import annotations
+
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 

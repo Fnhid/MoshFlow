@@ -1,5 +1,7 @@
 """Reference effect: no transition at all."""
 
+from __future__ import annotations
+
 from moshflow.api import EffectInfo, TransitionEffect, register
 
 

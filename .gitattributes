@@ -1,3 +1,4 @@
 # Visual Studio expects Windows line endings in these files.
 *.sln text eol=crlf
 *.pyproj text eol=crlf
+*.bat text eol=crlf

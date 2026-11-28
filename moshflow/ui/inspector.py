@@ -4,6 +4,8 @@ The controls of an effect are generated from its param_specs(), so a new effect
 gets its UI without any change here.
 """
 
+from __future__ import annotations
+
 import os
 import random
 from dataclasses import replace

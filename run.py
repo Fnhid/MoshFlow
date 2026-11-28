@@ -1,8 +1,9 @@
 """Start-up file for Visual Studio (F5): launches the MoshFlow GUI.
 
-Kept compatible with Python 3.8+ so pressing F5 under an older interpreter
-(such as Visual Studio's bundled Python 3.9) either hands off to a local
-virtual environment or prints a clear setup guide instead of a syntax error.
+Works with any Python 3.7 or newer, including the one Visual Studio installs with
+its Python workload (3.7 in VS 2019, 3.9 in VS 2022). If that Python lacks the
+packages, it uses a ready local `.venv`, or offers to create one and install
+requirements.txt into it (no administrator rights needed).
 """
 
 import importlib.util
@@ -11,7 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-MIN_PYTHON = (3, 10)
+MIN_PYTHON = (3, 7)
 REQUIRED = (
     ("numpy", "numpy"),
     ("cv2", "opencv-python"),
@@ -19,60 +20,46 @@ REQUIRED = (
 )
 REEXEC_GUARD = "MOSHFLOW_REEXEC"
 ROOT = Path(__file__).resolve().parent
+VENV = ROOT / ".venv"
 
 
 def _missing_packages():
-    missing = []
-    for module_name, package_name in REQUIRED:
-        if importlib.util.find_spec(module_name) is None:
-            missing.append(package_name)
-    return missing
+    return [package for module, package in REQUIRED if importlib.util.find_spec(module) is None]
 
 
-def _venv_pythons(root):
-    rel_paths = (Path("Scripts") / "python.exe", Path("bin") / "python")
+def _venv_python(folder):
+    for rel in (Path("Scripts") / "python.exe", Path("bin") / "python"):
+        if (folder / rel).is_file():
+            return folder / rel
+    return None
+
+
+def _is_current(executable):
     try:
-        current = Path(sys.executable).resolve()
+        return Path(executable).resolve() == Path(sys.executable).resolve()
     except OSError:
-        current = None
-    found = []
-    for folder in (".venv", "venv", "env"):
-        for rel in rel_paths:
-            candidate = root / folder / rel
-            if not candidate.is_file():
-                continue
-            try:
-                if current is not None and candidate.resolve() == current:
-                    continue
-            except OSError:
-                pass
-            found.append(candidate)
-    return found
+        return False
 
 
 def _python_is_ready(executable):
     check = (
         "import importlib.util, sys; "
-        "ok = sys.version_info >= (3, 10) and all("
+        "ok = sys.version_info >= {} and all("
         "importlib.util.find_spec(m) is not None for m in ('numpy', 'cv2', 'PySide6')); "
         "sys.exit(0 if ok else 1)"
-    )
+    ).format(MIN_PYTHON)
     try:
-        result = subprocess.run(
-            [str(executable), "-c", check],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-        )
-        return result.returncode == 0
-    except (OSError, subprocess.SubprocessError):
+        return subprocess.call([str(executable), "-c", check],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
+    except OSError:
         return False
 
 
-def _find_ready_venv(root):
-    for candidate in _venv_pythons(root):
-        if _python_is_ready(candidate):
-            return candidate
+def _find_ready_venv():
+    for folder in (VENV, ROOT / "venv", ROOT / "env"):
+        python = _venv_python(folder)
+        if python is not None and not _is_current(python) and _python_is_ready(python):
+            return python
     return None
 
 
@@ -82,52 +69,43 @@ def _reexec(executable, args):
     return subprocess.call([str(executable), str(Path(__file__).resolve())] + list(args), env=env)
 
 
-def _print_setup_guide(version_too_old, missing):
-    version_text = "{}.{}.{}".format(*sys.version_info[:3])
-    print("MoshFlow could not start with the active Python environment.", file=sys.stderr)
-    print("  Active Python: {} ({})".format(version_text, sys.executable), file=sys.stderr)
-    if version_too_old:
-        print(
-            "  Problem: MoshFlow requires Python {}.{} or newer (3.12 recommended).".format(*MIN_PYTHON),
-            file=sys.stderr,
-        )
-    if missing:
-        print("  Missing packages: {}".format(", ".join(missing)), file=sys.stderr)
-    print("", file=sys.stderr)
-    print("How to set up in Visual Studio:", file=sys.stderr)
-    print("  1. In Solution Explorer, right-click Python Environments -> Add Environment...", file=sys.stderr)
-    if version_too_old:
-        print(
-            "  2. Pick a Python 3.10+ base interpreter (do not use Visual Studio's bundled Python 3.9)",
-            file=sys.stderr,
-        )
-        print("     and install from requirements.txt, or choose Existing environment -> .venv.", file=sys.stderr)
-    else:
-        print("  2. Right-click the active environment -> Install from requirements.txt", file=sys.stderr)
-        print("     (or choose Add Environment -> Existing environment -> .venv).", file=sys.stderr)
-    print("  3. Activate the environment and press F5 again.", file=sys.stderr)
-    print("", file=sys.stderr)
-    print("Or from a terminal in the project folder:", file=sys.stderr)
-    if version_too_old:
-        print("  py -3.12 -m venv .venv", file=sys.stderr)
-        print("  .venv\\Scripts\\python -m pip install -r requirements.txt", file=sys.stderr)
-        print("  .venv\\Scripts\\python run.py", file=sys.stderr)
-    else:
-        print('  "{}" -m pip install -r requirements.txt'.format(sys.executable), file=sys.stderr)
-
-
-def _offer_install(root):
-    requirements = root / "requirements.txt"
-    if not requirements.is_file() or not sys.stdin or not sys.stdin.isatty():
-        return False
+def _set_up_venv():
+    """Asks, then creates .venv with this Python and installs requirements.txt into it.
+    Returns the new environment's python, or None."""
+    if not sys.stdin or not sys.stdin.isatty():
+        return None
     try:
-        answer = input("\nInstall packages from requirements.txt into this Python now? [y/N]: ").strip().lower()
+        answer = input("\nCreate .venv here and install requirements.txt into it now? [Y/n]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
-        return False
-    if answer not in ("y", "yes"):
-        return False
-    code = subprocess.call([sys.executable, "-m", "pip", "install", "-r", str(requirements)])
-    return code == 0 and not _missing_packages()
+        return None
+    if answer not in ("", "y", "yes"):
+        return None
+    if _venv_python(VENV) is None and subprocess.call([sys.executable, "-m", "venv", str(VENV)]) != 0:
+        return None
+    python = _venv_python(VENV)
+    if python is None:
+        return None
+    subprocess.call([str(python), "-m", "pip", "install", "--upgrade", "pip"])
+    if subprocess.call([str(python), "-m", "pip", "install", "-r", str(ROOT / "requirements.txt")]) != 0:
+        return None
+    return python
+
+
+def _print_setup_guide(version_too_old, missing):
+    say = lambda text="": print(text, file=sys.stderr)   # noqa: E731
+    say("MoshFlow could not start with the active Python environment.")
+    say("  Active Python: {} ({})".format(sys.version.split()[0], sys.executable))
+    if version_too_old:
+        say("  Problem: MoshFlow needs Python {}.{} or newer.".format(*MIN_PYTHON))
+    if missing:
+        say("  Missing packages: {}".format(", ".join(missing)))
+    say()
+    say("Easiest on Windows: double-click run_windows.bat in the project folder.")
+    say()
+    say("Or in Visual Studio:")
+    say("  1. Solution Explorer -> Python Environments -> right-click the active environment")
+    say("     -> Install from requirements.txt (or Add Environment -> Virtual environment).")
+    say("  2. Press F5 again.")
 
 
 def launch(args=None):
@@ -137,15 +115,17 @@ def launch(args=None):
 
     if version_too_old or missing:
         if os.environ.get(REEXEC_GUARD) != "1":
-            venv_python = _find_ready_venv(ROOT)
-            if venv_python is not None:
-                print("MoshFlow: switching to local virtual environment ({})".format(venv_python))
-                return _reexec(venv_python, args)
+            python = _find_ready_venv()
+            if python is not None:
+                print("MoshFlow: using the local environment {}".format(python))
+                return _reexec(python, args)
         _print_setup_guide(version_too_old, missing)
-        if not version_too_old and _offer_install(ROOT):
-            pass
-        else:
+        python = None if version_too_old or os.environ.get(REEXEC_GUARD) == "1" else _set_up_venv()
+        if python is None:
+            if sys.stdin and sys.stdin.isatty():
+                input("\nPress Enter to close.")
             return 1
+        return _reexec(python, args)
 
     from moshflow.__main__ import main
 

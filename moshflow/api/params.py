@@ -4,8 +4,10 @@ An effect declares its tunable values as a list of these specs. The UI builds
 one widget per spec, and the renderer validates project values against them.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, Union
 
 
 @dataclass(frozen=True)
@@ -41,7 +43,7 @@ class BoolParam:
     default: bool
 
 
-ParamSpec = IntParam | FloatParam | ChoiceParam | BoolParam
+ParamSpec = Union[IntParam, FloatParam, ChoiceParam, BoolParam]
 
 
 def default_params(specs: Sequence[ParamSpec]) -> dict[str, object]:

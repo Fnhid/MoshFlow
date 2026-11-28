@@ -1,5 +1,7 @@
 """Effect registry. Effects add themselves with the @register decorator."""
 
+from __future__ import annotations
+
 from moshflow.api.effect import TransitionEffect
 
 _EFFECTS: dict[str, type[TransitionEffect]] = {}

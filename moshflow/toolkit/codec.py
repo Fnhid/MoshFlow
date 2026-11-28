@@ -12,6 +12,8 @@ or repeated bilinear blur:
   so the source frame is sampled once per output frame with no accumulated blur.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 import numpy as np

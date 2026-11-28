@@ -6,25 +6,33 @@ cut on a timeline, and exports one video file.
 
 ## Set up
 
-Requires Python 3.12.
+Requires Python 3.7 or newer, so the Python that the Visual Studio installer adds
+(3.7 with VS 2019, 3.9 with VS 2022) works. The first setup needs internet access
+to install NumPy, OpenCV and PySide6.
+
+### Windows, quickest
+
+Double-click `run_windows.bat`. The first run creates `.venv` and installs
+`requirements.txt` into it (a few minutes); later runs start the GUI at once.
 
 ### Visual Studio 2019 / 2022
 
 1. In the Visual Studio Installer, add the **Python development** workload.
-2. Open `Team3_MoshFlow.sln`.
-3. In Solution Explorer, right-click **Python Environments > Add Environment**,
-   create a virtual environment with Python 3.12, and let it install from `requirements.txt`.
-4. Press **F5**. This runs `run.py`, which starts the GUI.
+2. Open `Team3_MoshFlow.sln` and press **F5**. This runs `run.py`. If the active
+   Python lacks the packages, it uses `.venv` when there is one, or offers to create
+   it and install `requirements.txt` (answer Enter in the console window).
+3. Or set it up by hand: Solution Explorer > **Python Environments** > right-click the
+   active environment > **Install from requirements.txt**, then press F5.
 
 ### Command line
 
 ```bash
-python3.12 -m venv .venv
+python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python run.py
 ```
 
-On Windows, use `.venv\Scripts\` instead of `.venv/bin/`.
+On Windows, use `py -3 -m venv .venv` and `.venv\Scripts\` instead of `.venv/bin/`.
 
 ## Use
 

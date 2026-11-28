@@ -84,7 +84,7 @@ Vector convention (from `docs/API.md`): `v = (dx, dy)` means
 
 ## Commands
 
-Python 3.12. On Windows use `.venv\Scripts\python` instead of `.venv/bin/python`.
+Python 3.7 or newer (keep the code 3.7-compatible: Visual Studio 2019 installs 3.7; every module starts with `from __future__ import annotations`, and runtime type expressions use `typing.Optional`/`Union`). On Windows use `.venv\Scripts\python` instead of `.venv/bin/python`.
 
 ```bash
 python3.12 -m venv .venv

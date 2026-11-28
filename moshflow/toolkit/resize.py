@@ -1,5 +1,7 @@
 """Image resizing, implemented by hand."""
 
+from __future__ import annotations
+
 import numpy as np
 
 

@@ -10,6 +10,8 @@ Conventions (see docs/API.md, "Motion vectors"):
 - A field: float32 array of shape (H, W, 2), one vector per pixel, same order.
 """
 
+from __future__ import annotations
+
 import os
 from concurrent.futures import ThreadPoolExecutor
 

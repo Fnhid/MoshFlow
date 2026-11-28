@@ -4,8 +4,11 @@ This walks the syntax tree of every source file under moshflow/, so comments
 and docstrings do not count. It fails on any forbidden import or call.
 """
 
+from __future__ import annotations
+
 import ast
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -86,3 +89,23 @@ def test_the_check_catches_violations(tmp_path):
     assert any("cv2.resize" in v for v in found)
     assert any("np.fft" in v for v in found)
     assert any("may only be used" in v for v in found)
+
+
+# Visual Studio 2019 installs Python 3.7, so the program must run on it.
+OLD_PYTHON = (3, 7)
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT.parent)))
+def test_runs_on_old_python(path):
+    source = path.read_text(encoding="utf-8")
+    # No newer syntax. On Python 3.7 itself, parsing is the check.
+    tree = ast.parse(source, feature_version=OLD_PYTHON) if sys.version_info >= (3, 8) else ast.parse(source)
+    if tree.body:
+        # Annotations such as `int | None` or `list[int]` stay unevaluated.
+        assert "from __future__ import annotations" in source, f"{path} needs the __future__ import"
+    for node in ast.walk(tree):
+        assert type(node).__name__ != "NamedExpr", f"{path}:{node.lineno} walrus needs Python 3.8"
+        if isinstance(node, ast.ImportFrom) and node.module == "typing":
+            newer = {a.name for a in node.names} & {"Protocol", "Literal", "TypedDict", "Final", "runtime_checkable"}
+            in_try = any(isinstance(t, ast.Try) and node in ast.walk(t) for t in ast.walk(tree))
+            assert not newer or in_try, f"{path}:{node.lineno} typing.{newer} needs Python 3.8"

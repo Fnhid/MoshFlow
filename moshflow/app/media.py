@@ -1,5 +1,7 @@
 """Reading video properties and preview frames for the UI, without depending on OpenCV."""
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.videoio import OpenCVReader, VideoInfo, probe

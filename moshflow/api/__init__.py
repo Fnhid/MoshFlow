@@ -3,6 +3,8 @@
 Effects import only from this package and from moshflow.toolkit.
 """
 
+from __future__ import annotations
+
 from moshflow.api.effect import EffectInfo, TransitionContext, TransitionEffect
 from moshflow.api.frames import Frame, FrameSink, FrameSource, ProgressReporter
 from moshflow.api.params import (

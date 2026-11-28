@@ -25,6 +25,8 @@ cells, the pixel at (13, 21) shows the picture's colour at (12, 20), the centre 
 cell. It turns into clip B when the pour-in front passes its cell.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.api import ChoiceParam, EffectInfo, FloatParam, IntParam, TransitionEffect, register

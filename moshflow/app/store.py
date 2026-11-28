@@ -1,5 +1,7 @@
 """ProjectStore: saves and loads projects as JSON (.moshproj)."""
 
+from __future__ import annotations
+
 import json
 import os
 from dataclasses import asdict, fields, replace

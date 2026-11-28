@@ -17,6 +17,8 @@ datamosh) combined with real MPEG-4 / Xvid P-frame decoding from `toolkit.codec`
      frame is B's next keyframe.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.api import ChoiceParam, EffectInfo, FloatParam, IntParam, TransitionEffect, register

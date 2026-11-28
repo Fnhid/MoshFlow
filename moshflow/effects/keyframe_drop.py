@@ -23,6 +23,8 @@ For one pixel (x, y) of the picture R kept between output frames, in clip B:
 Frames of A inside the window are intact.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, IntParam, TransitionEffect, register

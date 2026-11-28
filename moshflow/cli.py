@@ -5,6 +5,8 @@
   python -m moshflow.cli render project.moshproj [-o out.mp4]
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys

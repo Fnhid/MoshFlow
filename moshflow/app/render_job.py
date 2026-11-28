@@ -3,6 +3,8 @@
 Used by the CLI directly and by the UI from a background thread.
 """
 
+from __future__ import annotations
+
 import os
 import threading
 import time

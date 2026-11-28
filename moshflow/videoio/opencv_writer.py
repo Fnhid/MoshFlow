@@ -1,5 +1,7 @@
 """Encoding with cv2.VideoWriter (I/O only). Implements the FrameSink interface."""
 
+from __future__ import annotations
+
 import cv2
 import numpy as np
 

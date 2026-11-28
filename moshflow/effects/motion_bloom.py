@@ -22,6 +22,8 @@ stay vivid and sharp until B breaks through as real macroblock clusters:
   first frame.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, TransitionEffect, register

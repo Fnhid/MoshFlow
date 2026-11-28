@@ -1,5 +1,7 @@
 """UI tests, run without a visible window."""
 
+from __future__ import annotations
+
 import os
 import time
 
@@ -10,7 +12,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QSpinBox
 
@@ -308,6 +310,7 @@ def test_launcher_falls_back_to_local_venv(monkeypatch, tmp_path):
     fake_venv.write_text("", encoding="utf-8")
 
     monkeypatch.setattr(launcher, "ROOT", tmp_path)
+    monkeypatch.setattr(launcher, "VENV", tmp_path / ".venv")
     monkeypatch.setattr(launcher, "_missing_packages", lambda: ["PySide6"])
     monkeypatch.setattr(launcher, "_python_is_ready", lambda p: p == fake_venv)
     monkeypatch.delenv(launcher.REEXEC_GUARD, raising=False)
@@ -321,14 +324,30 @@ def test_launcher_falls_back_to_local_venv(monkeypatch, tmp_path):
 def test_launcher_prints_guide_when_python_too_old(monkeypatch, capsys):
     import run as launcher
 
-    monkeypatch.setattr(launcher.sys, "version_info", (3, 9, 13, "final", 0))
+    monkeypatch.setattr(launcher.sys, "version_info", (3, 6, 15, "final", 0))
     monkeypatch.setattr(launcher, "_missing_packages", lambda: [])
-    monkeypatch.setattr(launcher, "_find_ready_venv", lambda root: None)
+    monkeypatch.setattr(launcher, "_find_ready_venv", lambda: None)
+    monkeypatch.delenv(launcher.REEXEC_GUARD, raising=False)
 
     assert launcher.launch([]) == 1
     err = capsys.readouterr().err
-    assert "Python 3.10" in err
-    assert "requirements.txt" in err
+    assert "Python 3.7" in err
+    assert "run_windows.bat" in err and "requirements.txt" in err
+
+
+def test_launcher_offers_a_venv_when_packages_are_missing(monkeypatch, tmp_path):
+    import run as launcher
+
+    new_python = tmp_path / ".venv" / "Scripts" / "python.exe"
+    monkeypatch.setattr(launcher, "_missing_packages", lambda: ["PySide6"])
+    monkeypatch.setattr(launcher, "_find_ready_venv", lambda: None)
+    monkeypatch.setattr(launcher, "_set_up_venv", lambda: new_python)
+    monkeypatch.delenv(launcher.REEXEC_GUARD, raising=False)
+    called = []
+    monkeypatch.setattr(launcher, "_reexec", lambda exe, args: called.append((exe, args)) or 0)
+
+    assert launcher.launch(["--flag"]) == 0
+    assert called == [(new_python, ["--flag"])]
 
 
 def test_clip_end_shows_the_clip_length_by_default(window):
@@ -386,7 +405,6 @@ def test_i_and_o_keys_trim_the_selected_clip(window):
     window.model.add_clip(window.paths[0])
     window.model.select(CLIP, 0)
     window.preview.scrubber.setValue(5)
-    edit = {a.text().replace("&", ""): a for a in window.menuBar().actions()}["Edit"].menu()
-    start = next(a for a in edit.actions() if a.shortcut() == QKeySequence("I"))
+    start = next(a for a in window.findChildren(QAction) if a.shortcut() == QKeySequence("I"))
     start.trigger()
     assert window.model.project.clips[0].start == pytest.approx(0.5)

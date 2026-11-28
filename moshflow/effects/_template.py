@@ -14,6 +14,8 @@ Rules (checked by the contract test):
 - no file I/O, no UI, no OpenCV, no library image-processing functions.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.api import EffectInfo, FloatParam, TransitionEffect, register

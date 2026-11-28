@@ -19,6 +19,8 @@ where the new clip moves first. Once the share is 1
 everywhere, every block has switched.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.toolkit import color, motion, warp

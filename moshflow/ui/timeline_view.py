@@ -5,6 +5,8 @@ or right edge trims it, Delete removes it, and clips can be dropped in from the
 media bin or the file manager.
 """
 
+from __future__ import annotations
+
 import os
 from dataclasses import replace
 from itertools import count

@@ -5,6 +5,8 @@ New effects run without this (they are discovered from the folder), but they
 only show up in Visual Studio's Solution Explorer after it.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,7 +16,7 @@ PYTHON_PROJECT_TYPE = "{888888A0-9F3D-457C-B088-3A5042F75D52}"
 PROJECT_GUID = "{6E0B6C5E-3F0A-4B7E-9C51-16A1D5F2B016}"
 SOLUTION_GUID = "{B1C7A9D4-52E8-4F36-8A0D-16F4C3E7A916}"
 SOURCE_DIRS = ("moshflow", "tests", "tools")
-CONTENT_FILES = ("README.md", "CLAUDE.md", "docs/API.md", "requirements.txt", "pytest.ini")
+CONTENT_FILES = ("README.md", "CLAUDE.md", "docs/API.md", "requirements.txt", "pytest.ini", "run_windows.bat")
 
 
 def source_files() -> list[Path]:

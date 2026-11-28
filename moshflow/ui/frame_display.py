@@ -1,5 +1,7 @@
 """Converts BGR frames to QPixmap using hand-written resizing for display."""
 
+from __future__ import annotations
+
 import numpy as np
 from PySide6.QtGui import QPixmap
 

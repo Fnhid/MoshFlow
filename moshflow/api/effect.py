@@ -5,6 +5,8 @@ moshflow/effects/, decorated with @register. See README.md, "Writing an
 effect", and tests/test_effect_contract.py for the rules every effect follows.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Iterator, Mapping, Sequence

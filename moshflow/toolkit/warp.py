@@ -1,5 +1,7 @@
 """Motion compensation: moving a picture along a vector field, with plain NumPy arithmetic."""
 
+from __future__ import annotations
+
 import numpy as np
 
 

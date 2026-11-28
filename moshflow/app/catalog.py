@@ -1,5 +1,7 @@
 """EffectCatalog: the list of available effects, for the UI and the CLI."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Sequence
 

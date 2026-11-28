@@ -5,6 +5,8 @@ frames of clip B, depending on its alignment:
   before -> n frames of A,  center -> n/2 of A + n/2 of B,  after -> n frames of B.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Sequence
 

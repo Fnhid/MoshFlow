@@ -5,6 +5,8 @@ Projects are immutable, so the render keeps using the version from when Export
 was pressed.
 """
 
+from __future__ import annotations
+
 import os
 
 from PySide6.QtCore import QThread, Signal

@@ -1,5 +1,7 @@
 """Decoding with cv2.VideoCapture (I/O only)."""
 
+from __future__ import annotations
+
 import math
 import os
 from dataclasses import dataclass

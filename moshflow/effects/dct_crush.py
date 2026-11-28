@@ -43,6 +43,8 @@ switches to B's texture in one step, while the still wall next to it keeps A's
 picture.
 """
 
+from __future__ import annotations
+
 import math
 
 import numpy as np

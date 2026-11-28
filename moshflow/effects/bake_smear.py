@@ -17,6 +17,8 @@ Combines three pixel-domain datamosh mechanisms with zero alpha cross-fading:
    through as crisp 16x16 macroblock clusters—never a rectangular wipe or alpha fade.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 from moshflow.api import ChoiceParam, EffectInfo, FloatParam, TransitionEffect, register

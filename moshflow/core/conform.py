@@ -4,7 +4,12 @@ It implements the FrameSource interface on top of any reader that offers
 `info` (fps, frame_count) and `read(index)`.
 """
 
-from typing import Protocol
+from __future__ import annotations
+
+try:
+    from typing import Protocol
+except ImportError:            # Python 3.7: only used as a type hint
+    Protocol = object
 
 import numpy as np
 

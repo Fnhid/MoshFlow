@@ -1,5 +1,7 @@
 """End-to-end: real video files in, a real video file out."""
 
+from __future__ import annotations
+
 import os
 
 import numpy as np
