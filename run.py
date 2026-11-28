@@ -34,11 +34,11 @@ def _venv_python(folder):
     return None
 
 
-def _is_current(executable):
-    try:
-        return Path(executable).resolve() == Path(sys.executable).resolve()
-    except OSError:
-        return False
+def _is_current(folder):
+    """True if this Python is running from the environment in `folder`. (Compares
+    the environment, not the executable: a venv's python may link to its base.)"""
+    same = lambda a, b: os.path.normcase(os.path.abspath(str(a))) == os.path.normcase(os.path.abspath(str(b)))  # noqa: E731
+    return same(sys.prefix, folder)
 
 
 def _python_is_ready(executable):
@@ -58,7 +58,7 @@ def _python_is_ready(executable):
 def _find_ready_venv():
     for folder in (VENV, ROOT / "venv", ROOT / "env"):
         python = _venv_python(folder)
-        if python is not None and not _is_current(python) and _python_is_ready(python):
+        if python is not None and not _is_current(folder) and _python_is_ready(python):
             return python
     return None
 
